@@ -1,100 +1,97 @@
 import requests
-import pandas as pd
-from tqdm import tqdm
+
+url = "https://search.rcsb.org/rcsbsearch/v2/query"
+headers = {"Content-Type": "application/json"}
+
+query_template = {
+    "query": {
+        "type": "group",
+        "logical_operator": "and",
+        "nodes": [
+            {
+                "type": "group",
+                "logical_operator": "and",
+                "nodes": [
+                    {
+                        "type": "terminal",
+                        "service": "text",
+                        "parameters": {
+                            "attribute": "rcsb_nonpolymer_instance_annotation.comp_id",
+                            "operator": "exists",
+                            "negation": False
+                        }
+                    },
+                    {
+                        "type": "terminal",
+                        "service": "text",
+                        "parameters": {
+                            "attribute": "rcsb_nonpolymer_instance_annotation.type",
+                            "operator": "exact_match",
+                            "value": "HAS_NO_COVALENT_LINKAGE",
+                            "negation": False
+                        }
+                    }
+                ],
+                "label": "nested-attribute"
+            },
+            {
+                "type": "terminal",
+                "service": "text",
+                "parameters": {
+                    "attribute": "entity_poly.rcsb_entity_polymer_type",
+                    "value": "Protein",
+                    "operator": "exact_match"
+                }
+            }
+        ],
+        "label": "text"
+    },
+    "return_type": "entry",
+    "request_options": {
+        "paginate": {
+            "start": 0,  # Will be updated dynamically
+            "rows": 10000  # Fetch 10,000 results per request
+        },
+        "results_content_type": [
+            "experimental"
+        ],
+        "sort": [
+            {
+                "sort_by": "score",
+                "direction": "desc"
+            }
+        ],
+        "scoring_strategy": "combined"
+    }
+}
 
 
-def get_uniprot_from_pdb(pdb_id):
-    """Receives a list of PDB IDs and gets Uniprot IDs for all the chains"""
-
-    url = f"https://www.ebi.ac.uk/pdbe/api/mappings/uniprot/{pdb_id}"
-    response = requests.get(url)
-    data = response.json()
-    uniprot_ids = list(data.get(pdb_id.lower(), {}).get("UniProt", {}).keys())
-    return uniprot_ids
-
-
-def get_chembl_from_uniprot(uniprot_id):
-    """Receives a list of Uniprot IDs and gets the
-       corresponding target components from Chembl"""
+def get_pdb_ids(start, batch_size, query_template, url, headers):
     
-    url = f"https://www.ebi.ac.uk/chembl/api/data/target?target_components__accession={uniprot_id}"
-    headers = {"Accept": "application/json"}  # Ensure JSON response
-    response = requests.get(url, headers=headers)
-    data = response.json()
-    return [entry["target_chembl_id"] for entry in data.get("targets", [])]
+    all_results, found_results = [], True
 
+    while found_results:
+        print(start)
+        query_template["request_options"]["paginate"]["start"] = start
+        query_template["request_options"]["paginate"]["rows"] = batch_size
 
-def get_chembl_ligands(chembl_target_id):
-    """Get the ligands for chembl target proteins"""
+        response = requests.post(url, json=query_template, headers=headers)
 
-    url = f"https://www.ebi.ac.uk/chembl/api/data/activity.json?target_chembl_id={chembl_target_id}"
-    response = requests.get(url)
-    ligands = []
-    data = response.json()
-    for entry in data.get("activities", []):
-        ligand_chembl_id = entry.get("molecule_chembl_id")
-        if ligand_chembl_id:
-            ligands.append(ligand_chembl_id)
-    return list(set(ligands))
+        if response.status_code == 200:
+            data = response.json()
+            if "result_set" in data and data["result_set"]:
+                all_results.extend(data["result_set"])
+                start += batch_size
+            else:
+                found_results = False  # No more results to fetch
+        else:
+            print(f"Error: {response.status_code}, {response.text}")
+            found_results = False
+    
+    all_ids = [pdb["identifier"] for pdb in all_results]
+    return all_ids
 
+ids = get_pdb_ids(start=0, batch_size=10000, query_template=query_template, url=url, headers=headers)
 
-def get_smiles_from_chembl(chembl_ligand_id):
-    """Get the smiles for a set of ligands"""
-
-    url = f"https://www.ebi.ac.uk/chembl/api/data/molecule/{chembl_ligand_id}.json"
-    response = requests.get(url)
-    data = response.json()
-    return data.get("molecule_structures", {}).get("canonical_smiles", "N/A")
-
-
-def get_pfam_from_interpro(uniprot_id):
-    """Gets the Pfam domain accessions for a list of uniprot sequences"""
-
-    url = f"https://www.ebi.ac.uk/interpro/api/entry/pfam/protein/uniprot/{uniprot_id}"
-    headers = {"Accept": "application/json"}
-    response = requests.get(url, headers=headers)
-    data = response.json()
-    results = data.get("results")
-    pfam_domains = [res.get("metadata").get("accession") for res in results]
-    return pfam_domains
-
-
-def generate_table(pdbs):
-    """Generate a dataset table from a list of PDB IDs"""
-
-    results = []
-
-    # Process each PDB ID
-    for pdb_id in tqdm(pdbs, desc="Processing PDBs"):
-        
-        uniprot_ids = get_uniprot_from_pdb(pdb_id)
-        
-        for uniprot_id in uniprot_ids:
-
-            chembl_targets = get_chembl_from_uniprot(uniprot_id)
-            pfam_domains = get_pfam_from_interpro(uniprot_id)
-            
-            for chembl_target in chembl_targets:
-                ligands = get_chembl_ligands(chembl_target)
-                
-                for ligand in ligands:
-                    smiles = get_smiles_from_chembl(ligand)
-                    results.append({
-                        "PDB_ID": pdb_id,
-                        "UniProt_ID": uniprot_id,
-                        "ChEMBL_Target_ID": chembl_target,
-                        "Ligand": ligand,
-                        "SMILES": smiles,
-                        "PFAM_Domains": ", ".join(pfam_domains) if pfam_domains else "N/A"
-                    })
-
-    df = pd.DataFrame(results)
-    df.to_csv("pdb_chembl_ligands_pfam.csv", index=False)
-    return df
-
-# List of PDB IDs (replace with your own)
-pdb_ids = ["4HHB"]#, "1A4G", "5XNL"]  # Example PDB IDs 
-
-df = generate_table(pdb_ids)
-
-df
+print(ids)
+print(len(ids))

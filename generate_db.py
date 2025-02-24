@@ -1,4 +1,5 @@
 import requests
+import os
 
 url = "https://search.rcsb.org/rcsbsearch/v2/query"
 headers = {"Content-Type": "application/json"}
@@ -67,6 +68,7 @@ query_template = {
 
 
 def get_pdb_ids(start, batch_size, query_template, url, headers):
+    """Retrieves PDB IDs for a specific query in custom batch sizes"""
     
     all_results, found_results = [], True
 
@@ -91,7 +93,33 @@ def get_pdb_ids(start, batch_size, query_template, url, headers):
     all_ids = [pdb["identifier"] for pdb in all_results]
     return all_ids
 
-ids = get_pdb_ids(start=0, batch_size=10000, query_template=query_template, url=url, headers=headers)
 
-print(ids)
-print(len(ids))
+def download_pdb(pdb_id, save_dir):
+
+    pdb_url = f"https://files.rcsb.org/download/{pdb_id}.pdb"  # PDB file URL
+    save_path = os.path.join(save_dir, f"{pdb_id}.pdb")  # File save path
+
+    # Request the PDB file
+    response = requests.get(pdb_url)
+
+    if response.status_code == 200:
+        with open(save_path, "wb") as file:
+            file.write(response.content)  # Save file
+        #print(f"Downloaded: {pdb_id}.pdb")
+    else:
+        print(f"Failed to download: {pdb_id}.pdb (Status Code: {response.status_code})")
+
+
+def download_multiple_pdbs(pdb_ids, save_dir):
+
+    os.makedirs(save_dir, exist_ok=True)  # Create the directory if it doesn't exist
+    for k, pdb_id in enumerate(pdb_ids[:20]):
+
+        #if k%100==0: print(k)
+        download_pdb(pdb_id, save_dir)
+
+    print(f"Download complete! Files are saved in '{save_dir}/'.")
+
+
+pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=query_template, url=url, headers=headers)
+download_multiple_pdbs(pdb_ids, "pdb_files")

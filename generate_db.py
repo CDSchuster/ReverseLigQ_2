@@ -1,8 +1,13 @@
 import requests
 import os
+import time
+import pickle 
+import pandas as pd
 
-url = "https://search.rcsb.org/rcsbsearch/v2/query"
-headers = {"Content-Type": "application/json"}
+
+rcsb_base = "https://data.rcsb.org/rest/v1/core"
+uniprot_base = "https://rest.uniprot.org/uniprotkb"
+
 
 query_template = {
     "query": {
@@ -67,8 +72,11 @@ query_template = {
 }
 
 
-def get_pdb_ids(start, batch_size, query_template, url, headers):
+def get_pdb_ids(start, batch_size, query_template):
     """Retrieves PDB IDs for a specific query in custom batch sizes"""
+
+    url = "https://search.rcsb.org/rcsbsearch/v2/query"
+    headers = {"Content-Type": "application/json"}
     
     all_results, found_results = [], True
 
@@ -121,5 +129,95 @@ def download_multiple_pdbs(pdb_ids, save_dir):
     print(f"Download complete! Files are saved in '{save_dir}/'.")
 
 
-pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=query_template, url=url, headers=headers)
-download_multiple_pdbs(pdb_ids, "pdb_files")
+def get_ligand_binding_chains(pdb_id, full_data):
+    """For a given PDB ID, gets its ligands and chains"""
+
+    url= f"https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_excluding_branched/{pdb_id}/"
+    response = requests.get(url)
+    data = response.json()
+    ligands = []
+    full_data[pdb_id] = {}
+    for dic in data[pdb_id.lower()]:
+        ligands_list = dic["composition"]["ligands"]
+        for k in ligands_list:
+            full_data[pdb_id][k["chain_id"]] = {}
+            full_data[pdb_id][k["chain_id"]]["ligand"]=k["chem_comp_id"]
+    return full_data
+
+
+def get_uniprot_accession(pdb_id, full_data):
+    """For a given PDB ID and a previously created dictionary,
+    returns an updated dictionary with the Uniprot ID for each chain"""
+
+    url = f"https://www.ebi.ac.uk/pdbe/graph-api/mappings/uniprot/{pdb_id}"
+    response = requests.get(url)
+    data = response.json()[pdb_id.lower()]["UniProt"]
+    keys = list(data.keys())
+    for k in keys:
+        mappings = data[k]["mappings"]
+        for mp in mappings:
+            if mp["chain_id"] in full_data[pdb_id].keys():
+                chain=mp["chain_id"]
+                full_data[pdb_id][chain]["UniProt_ID"] = k
+    return full_data
+
+
+def extract_pfam_chains(pdb_id):
+    """Gets the Pfam domains of every PDB chain
+    and returns a dictionary of those domains"""
+
+    url = f"https://www.ebi.ac.uk/pdbe/graph-api/mappings/pfam/{pdb_id}"
+    response = requests.get(url)
+    data = response.json()
+
+    chain_pfam_map = {}
+    
+    for id, pdb_data in data.items():
+        if "Pfam" in pdb_data:
+            for pfam_id, pfam_data in pdb_data["Pfam"].items():
+                for mapping in pfam_data.get("mappings", []):
+                    chain_id = mapping["chain_id"]
+                    if chain_id not in chain_pfam_map:
+                        chain_pfam_map[chain_id] = []
+                    chain_pfam_map[chain_id].append(pfam_id)
+    
+    return chain_pfam_map
+
+
+def merge_pfam_with_chains(chain_dict, pfam_data):
+    """Merges a previously created dictionary to a
+       dictionary of Pfam domains for every chain"""
+
+    for pdb_id, chains in chain_dict.items():
+        for chain_id, chain_info in chains.items():
+            if chain_id in pfam_data:
+                chain_info["pfam_domains"] = pfam_data[chain_id]
+            else:
+                chain_info["pfam_domains"] = []
+    
+    return chain_dict
+
+
+def get_PDB_data(pdb_ids):
+    """Gets ligands, uniprot ID, chains and Pfam domains
+       for every PDB ID that is given in a list and returns
+       it as a dictionary of dictionaries"""
+
+    full_data = {}
+
+    for pdb_id in pdb_ids[:50]:
+        full_data = get_ligand_binding_chains(pdb_id, full_data)
+        full_data = get_uniprot_accession(pdb_id, full_data)
+        pfam_data = extract_pfam_chains(pdb_id)
+        full_data = merge_pfam_with_chains(full_data, pfam_data)
+    
+    return full_data
+
+
+pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=query_template)
+#download_multiple_pdbs(pdb_ids, "pdb_files")
+
+full_data = get_PDB_data(pdb_ids[:3])
+
+with open('saved_dictionary.pkl', 'wb') as f:
+    pickle.dump(full_data, f)

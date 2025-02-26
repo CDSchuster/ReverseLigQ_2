@@ -1,4 +1,5 @@
 import requests
+import concurrent.futures
 import os
 import time
 import pickle 
@@ -215,9 +216,48 @@ def get_PDB_data(pdb_ids):
 
 
 pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=query_template)
-#download_multiple_pdbs(pdb_ids, "pdb_files")
 
-full_data = get_PDB_data(pdb_ids[:3])
 
-with open('saved_dictionary.pkl', 'wb') as f:
-    pickle.dump(full_data, f)
+
+start = time.time()
+
+
+# List of API endpoints
+URL_TEMPLATES = [
+    "https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_excluding_branched/{pdb_id}",
+    "https://www.ebi.ac.uk/pdbe/graph-api/mappings/uniprot/{pdb_id}",
+    "https://www.ebi.ac.uk/pdbe/graph-api/mappings/pfam/{pdb_id}",
+]
+
+# Generate all URL tasks (combinations of PDB IDs and URLs)
+tasks = [(pdb_id, url.format(pdb_id=pdb_id)) for pdb_id in pdb_ids[:1000] for url in URL_TEMPLATES]
+
+def fetch_url(pdb_id, url):
+    """Fetch data from a given URL with error handling."""
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()  # Ensure we catch HTTP errors
+        return pdb_id, url, response.json()
+    except requests.RequestException as e:
+        return pdb_id, url, str(e)
+
+# Set high concurrency with max_workers (adjust based on system performance)
+MAX_WORKERS = min(100, len(tasks))  # Limits max workers to prevent overload
+
+# Run all requests in parallel
+results_dict = {}
+with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+    results = executor.map(lambda args: fetch_url(*args), tasks)
+
+    # Store results in a structured dictionary
+    for pdb_id, url, data in results:
+        if pdb_id not in results_dict:
+            results_dict[pdb_id] = {}
+        results_dict[pdb_id][url] = data
+
+
+# Save results as a Pickle file
+with open("pdb_results.pkl", "wb") as f:
+    pickle.dump(results_dict, f)
+
+print(time.time() - start)

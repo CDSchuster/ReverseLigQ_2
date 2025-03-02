@@ -113,6 +113,8 @@ def fetch_url(pdb_id, url):
         results =  pdb_id, url, response.json()
     except requests.RequestException as e:
         results =  pdb_id, url, str(e)
+        print(f"{pdb_id} could not be retrieved for {url}")
+        print(e)
     return results
 
 
@@ -136,7 +138,10 @@ def retrieve_data(pdb_ids, URLs):
             if pdb_id not in results_dict:
                 results_dict[pdb_id] = {}
             if "pfam" in url:
-                results_dict[pdb_id]["Pfam_url"] = data[pdb_id.lower()]["Pfam"]
+                try:
+                    results_dict[pdb_id]["Pfam_url"] = data[pdb_id.lower()]["Pfam"]
+                except:
+                    print(f"Could not get Pfam data for {pdb_id}")
             else:
                 results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
     
@@ -189,7 +194,10 @@ def generate_DFs(ligand_results):
         # For every pdb_id, we get multiple lists of data
         # to be added as rows to the coorespondent dataframe
         new_bmid_rows = get_bmids_df(pdb_id, urls["ligand_url"])
-        new_pfam_rows = get_pfam_df(pdb_id, urls["Pfam_url"])
+        try:
+            new_pfam_rows = get_pfam_df(pdb_id, urls["Pfam_url"])
+        except:
+            print(f"No Pfam domains for {pdb_id}")
 
         ligand_df = pd.concat([ligand_df, pd.DataFrame(new_bmid_rows, columns=ligand_df.columns)], ignore_index=True)
         pfam_df = pd.concat([pfam_df, pd.DataFrame(new_pfam_rows, columns=pfam_df.columns)], ignore_index=True)
@@ -199,7 +207,7 @@ def generate_DFs(ligand_results):
 
 def main():
     pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=QUERY)
-    ligand_results = retrieve_data(pdb_ids[:20], URL_TEMPLATES[:2])
+    ligand_results = retrieve_data(pdb_ids, URL_TEMPLATES[:2])
     ligand_df, pfam_df = generate_DFs(ligand_results)
     
 

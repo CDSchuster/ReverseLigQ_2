@@ -3,3 +3,5 @@ chembl_targets_with_pdb.csv
 alternative.py
 pdb_files
 saved_dictionary.pkl
+old_functions.py
+pdb_results.pkl

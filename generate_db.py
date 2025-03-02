@@ -6,7 +6,7 @@ import pickle
 import pandas as pd
 
 
-query_template = {
+QUERY = {
     "query": {
         "type": "group",
         "logical_operator": "and",
@@ -69,6 +69,11 @@ query_template = {
 }
 
 
+URL_TEMPLATES = ["https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_excluding_branched/{pdb_id}",
+                 "https://www.ebi.ac.uk/pdbe/graph-api/mappings/pfam/{pdb_id}",
+                 "https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{pdb_id}/{bm}"]
+
+
 def get_pdb_ids(start, batch_size, query_template):
     """Retrieves PDB IDs for a specific query in custom batch sizes"""
 
@@ -78,7 +83,7 @@ def get_pdb_ids(start, batch_size, query_template):
     all_results, found_results = [], True
 
     while found_results:
-        
+        # We set the batch-size for every iteration of requests
         query_template["request_options"]["paginate"]["start"] = start
         query_template["request_options"]["paginate"]["rows"] = batch_size
 
@@ -86,6 +91,7 @@ def get_pdb_ids(start, batch_size, query_template):
 
         if response.status_code == 200:
             data = response.json()
+            # Add the requested data to that which we have until there is no more to request
             if "result_set" in data and data["result_set"]:
                 all_results.extend(data["result_set"])
                 start += batch_size
@@ -113,6 +119,7 @@ def fetch_url(pdb_id, url):
 def retrieve_data(pdb_ids, URLs):
     """Takes a list of URLs and retrieves data for every PDB ID given"""
     
+    # We create the tasks to distribute by parallelization
     tasks = [(pdb_id, url.format(pdb_id=pdb_id)) for pdb_id in pdb_ids for url in URLs]
     
     # Set high concurrency with max_workers (adjust based on system performance)
@@ -125,58 +132,75 @@ def retrieve_data(pdb_ids, URLs):
 
         # Store results in a structured dictionary
         for pdb_id, url, data in results:
+            
             if pdb_id not in results_dict:
                 results_dict[pdb_id] = {}
-            results_dict[pdb_id][url] = data[pdb_id]
+            if "pfam" in url:
+                results_dict[pdb_id]["Pfam_url"] = data[pdb_id.lower()]["Pfam"]
+            else:
+                results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
     
     return results_dict
 
 
-def get_bmids(ligand_results):
+def get_bmids_df(pdb_id, results):
+    """For a certain PDB_ID and its ligands requests results,
+    creates a list of lists containing basic info to create a DF"""
 
-    df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'ligand_id', "bm_id"])
+    new_rows = []
+
+    for bm_dict in results: # Iterate the dictionaries of each bm_id
+        ligands_list = bm_dict["composition"]["ligands"]
+
+        for ligand in ligands_list: # Now we get the data in a list and add it to the new_rows list
+            new_row = [pdb_id, ligand["chain_id"], ligand["chem_comp_id"], bm_dict["bm_id"]]
+            new_rows.append(new_row)
+               
+    return new_rows
+
+
+def get_pfam_df(pdb_id, results):
+    """For a certain PDB_ID and its Pfam requests results, creates
+       a list of lists containing basic info to create a DF"""
+
+    new_rows = []
+    for key, value in results.items(): # Iterate each different Pfam domain type
+        pfam_id = key
+        pfam_name = value["identifier"]
+        # Each domain can have multiple instances in many PDB chains
+        # We get all the needed data and add it to the new_rows list
+        new_rows = [[pdb_id, instance["chain_id"], pfam_id, pfam_name,
+                    instance["start"]["residue_number"],
+                    instance["end"]["residue_number"]] for instance in value["mappings"]]
+    
+    return new_rows
+
+
+def generate_DFs(ligand_results):
+    """Takes a PDB Pfam and ligands requests results and
+    creates 2 dataframes containing all the data needed"""
+
+    # Initialize the dataframes
+    ligand_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'ligand_id', "bm_id"])
+    pfam_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'pfam_id', "pfam_name", "start", "end"])
 
     for pdb_id, urls in ligand_results.items():
-        
-        for url, pdb_data in urls.items():
-            print(urls.keys())
-            if "bound_excluding_branched" in url:
 
-                for bm_dict in pdb_data:
-                    ligands_list = bm_dict["composition"]["ligands"]
-                    for ligand in ligands_list:
-                        new_row = [pdb_id, ligand["chain_id"], ligand["chem_comp_id"], bm_dict["bm_id"]]
-                        df.loc[len(df)] = new_row
+        # For every pdb_id, we get multiple lists of data
+        # to be added as rows to the coorespondent dataframe
+        new_bmid_rows = get_bmids_df(pdb_id, urls["ligand_url"])
+        new_pfam_rows = get_pfam_df(pdb_id, urls["Pfam_url"])
 
-                    #for key, value in bm_dict.items():
-                    #    print(value)
+        ligand_df = pd.concat([ligand_df, pd.DataFrame(new_bmid_rows, columns=ligand_df.columns)], ignore_index=True)
+        pfam_df = pd.concat([pfam_df, pd.DataFrame(new_pfam_rows, columns=pfam_df.columns)], ignore_index=True)
 
-    print(df)              
-
-
-            # for pdb_key, bm_list in pdb_data.items():
-            #     result[pdb_id] = [
-            #         {"bm_id": bm["bm_id"], "chain_ids": [ligand["chain_id"] for ligand in bm["composition"]["ligands"]]}
-            #         for bm in bm_list
-            #     ]
-
-    #return result
-
-
-URL_TEMPLATES = ["https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_excluding_branched/{pdb_id}",
-                 "https://www.ebi.ac.uk/pdbe/graph-api/mappings/pfam/{pdb_id}",
-                 "https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{pdb_id}/{bm}"]
-
+    return ligand_df, pfam_df
+            
 
 def main():
-    #pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=query_template)
-    pdb_ids = ["1cqx", "2pgh"]
-    ligand_results = retrieve_data(pdb_ids[:3], URL_TEMPLATES[:2])
-    #print(ligand_results)
-    ligand_bmids = get_bmids(ligand_results)
-    #print(ligand_bmids)
-    #print(ligands_chains)
-    # with open("pdb_results.pkl", "wb") as f:
-    #     pickle.dump(results, f)
+    pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=QUERY)
+    ligand_results = retrieve_data(pdb_ids[:20], URL_TEMPLATES[:2])
+    ligand_df, pfam_df = generate_DFs(ligand_results)
+    
 
 main()

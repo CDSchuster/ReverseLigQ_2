@@ -143,7 +143,10 @@ def retrieve_data(pdb_ids, URLs):
                 except:
                     print(f"Could not get Pfam data for {pdb_id}")
             else:
-                results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
+                try:
+                    results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
+                except:
+                    print(f"Could not get ligand data for {pdb_id}")
     
     return results_dict
 
@@ -193,7 +196,10 @@ def generate_DFs(ligand_results):
 
         # For every pdb_id, we get multiple lists of data
         # to be added as rows to the coorespondent dataframe
-        new_bmid_rows = get_bmids_df(pdb_id, urls["ligand_url"])
+        try:
+            new_bmid_rows = get_bmids_df(pdb_id, urls["ligand_url"])
+        except:
+            print(f"No ligand data for {pdb_id}")
         try:
             new_pfam_rows = get_pfam_df(pdb_id, urls["Pfam_url"])
         except:
@@ -209,6 +215,6 @@ def main():
     pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=QUERY)
     ligand_results = retrieve_data(pdb_ids, URL_TEMPLATES[:2])
     ligand_df, pfam_df = generate_DFs(ligand_results)
-    
+
 
 main()

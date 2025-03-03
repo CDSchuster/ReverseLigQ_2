@@ -209,12 +209,64 @@ def generate_DFs(ligand_results):
         pfam_df = pd.concat([pfam_df, pd.DataFrame(new_pfam_rows, columns=pfam_df.columns)], ignore_index=True)
 
     return ligand_df, pfam_df
-            
+
+
+def generate_DFs_parallel(subset_pdb_ids, ligand_results):
+    """Processes a subset of PDB IDs to create ligand and Pfam DataFrames."""
+    
+    ligand_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'ligand_id', "bm_id"])
+    pfam_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'pfam_id', "pfam_name", "start", "end"])
+
+    for pdb_id in subset_pdb_ids:
+        urls = ligand_results.get(pdb_id, {})
+
+        try:
+            new_bmid_rows = get_bmids_df(pdb_id, urls.get("ligand_url", []))
+            ligand_df = pd.concat([ligand_df, pd.DataFrame(new_bmid_rows, columns=ligand_df.columns)], ignore_index=True)
+        except Exception:
+            print(f"No ligand data for {pdb_id}")
+
+        try:
+            new_pfam_rows = get_pfam_df(pdb_id, urls.get("Pfam_url", {}))
+            pfam_df = pd.concat([pfam_df, pd.DataFrame(new_pfam_rows, columns=pfam_df.columns)], ignore_index=True)
+        except Exception:
+            print(f"No Pfam domains for {pdb_id}")
+
+    return ligand_df, pfam_df
+
+
+def parallelize(pdb_ids, ligand_results):
+
+     # Define number of workers
+    
+    num_workers = min(os.cpu_count(), 12)  # Limit to 12 CPUs
+    chunk_size = max(1, len(pdb_ids) // num_workers)  # Divide data into chunks
+
+    # Split PDB IDs into chunks for parallel processing
+    chunks = [pdb_ids[i:i + chunk_size] for i in range(0, len(pdb_ids), chunk_size)]
+
+    # Use ProcessPoolExecutor for multiprocessing
+    with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+        results = list(executor.map(generate_DFs_parallel, chunks, [ligand_results] * len(chunks)))
+
+    # Merge results from all processes
+    ligand_df = pd.concat([res[0] for res in results], ignore_index=True)
+    pfam_df = pd.concat([res[1] for res in results], ignore_index=True)
+
+    return ligand_df, pfam_df
+
 
 def main():
     pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=QUERY)
+    start = time.time()
     ligand_results = retrieve_data(pdb_ids, URL_TEMPLATES[:2])
-    ligand_df, pfam_df = generate_DFs(ligand_results)
+    # ligand_df, pfam_df = generate_DFs(ligand_results)
+    ligand_df, pfam_df = parallelize(pdb_ids, ligand_results)
+    print(time.time() - start)
 
+    return ligand_df, pfam_df
 
-main()
+# Run the main function
+ligand_df, pfam_df = main()
+print(ligand_df)
+print(pfam_df)

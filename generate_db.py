@@ -6,7 +6,7 @@ import pickle
 import pandas as pd
 
 
-QUERY = {
+QUERY_PDB = {
     "query": {
         "type": "group",
         "logical_operator": "and",
@@ -68,6 +68,14 @@ QUERY = {
     }
 }
 
+QUERY_COMPOUNDS = """query molecule ($id: String!) {
+    chem_comp(comp_id:$id){
+        rcsb_chem_comp_descriptor {
+            SMILES
+            
+        }
+    }
+}"""
 
 URL_TEMPLATES = ["https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_excluding_branched/{pdb_id}",
                  "https://www.ebi.ac.uk/pdbe/graph-api/mappings/pfam/{pdb_id}",
@@ -107,6 +115,7 @@ def get_pdb_ids(start, batch_size, query_template):
 
 def fetch_url(pdb_id, url):
     """Fetch data from a given URL with error handling."""
+
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()  # Ensure we catch HTTP errors
@@ -236,9 +245,9 @@ def generate_DFs_parallel(subset_pdb_ids, ligand_results):
 
 
 def parallelize(pdb_ids, ligand_results):
+    """Parallelizes DFs generation"""
 
-     # Define number of workers
-    
+    # Define number of workers
     num_workers = min(os.cpu_count(), 12)  # Limit to 12 CPUs
     chunk_size = max(1, len(pdb_ids) // num_workers)  # Divide data into chunks
 
@@ -256,17 +265,47 @@ def parallelize(pdb_ids, ligand_results):
     return ligand_df, pfam_df
 
 
+def fetch_SMILE_data(het):
+    """Requests SMILE data for a given PDB hetcode"""
+
+    url = "https://data.rcsb.org/graphql"
+    try:
+        response = requests.post(url, json={"query": QUERY_COMPOUNDS, "variables": {"id": het}})
+        response.raise_for_status()  # Raise an error for bad status codes
+        result = (het, response.json()["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]["SMILES"])
+    except requests.RequestException as e:
+        print(f"Error fetching {het}: {e}")
+        result = (het, None)  # Return None in case of an error
+    return result
+
+
+def parallelize_SMILE_request(ligand_df):
+    """Parallelizes requests for SMILEs data to RCSB"""
+    
+    raw_smiles_data = {}
+    # Use ThreadPoolExecutor to parallelize requests
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        results = executor.map(fetch_SMILE_data, list(set(ligand_df.ligand_id)))  # Limit to first 10 ligands
+
+    # Store results in dictionary
+    for het, data in results:
+        raw_smiles_data[het] = data
+    
+    ligand_df["SMILES"] = ligand_df["ligand_id"].map(raw_smiles_data)
+    
+    return ligand_df
+
+
 def main():
-    pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=QUERY)
-    start = time.time()
+    pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=QUERY_PDB)
     ligand_results = retrieve_data(pdb_ids, URL_TEMPLATES[:2])
     # ligand_df, pfam_df = generate_DFs(ligand_results)
     ligand_df, pfam_df = parallelize(pdb_ids, ligand_results)
-    print(time.time() - start)
-
+    ligand_df = parallelize_SMILE_request(ligand_df)
     return ligand_df, pfam_df
+
 
 # Run the main function
 ligand_df, pfam_df = main()
-print(ligand_df)
-print(pfam_df)
+ligand_df.to_csv("ligand.csv")
+pfam_df.to_csv("pfam.csv")

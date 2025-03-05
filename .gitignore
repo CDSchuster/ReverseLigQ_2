@@ -5,3 +5,5 @@ pdb_files
 saved_dictionary.pkl
 old_functions.py
 pdb_results.pkl
+ligand.csv
+pfam.csv

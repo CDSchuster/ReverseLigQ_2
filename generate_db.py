@@ -296,16 +296,60 @@ def parallelize_SMILE_request(ligand_df):
     return ligand_df
 
 
+def fetch_interaction(pdb_id, bm, url):
+    """Gets interaction data for a given pdb and molecule"""
+
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()  # Ensure we catch HTTP errors
+        results = pdb_id, bm, response.json()
+    except requests.RequestException as e:
+        results =  pdb_id, bm, str(e)
+        print(f"Data could not be retrieved for {url}")
+        print(e)
+    return results
+
+
+def get_interactions(ligand_df):
+    """Parallelizes data retrieval for several pdb_ids and their ligands"""
+
+    tuples = list(zip(ligand_df['pdb_id'], ligand_df['bm_id']))
+    # We create the tasks to distribute by parallelization
+    tasks = [(tup[0], tup[1], URL_TEMPLATES[2].format(pdb_id=tup[0], bm=tup[1])) for tup in tuples]
+    
+    # Set high concurrency with max_workers (adjust based on system performance)
+    MAX_WORKERS = min(500, len(tasks))  # Limits max workers to prevent overload
+
+    # Run all requests in parallel
+    results_dict = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        results = executor.map(lambda args: fetch_interaction(*args), tasks)
+        
+        # Store results in a structured dictionary
+        for pdb_id, bm, data in results:
+            #print(data.keys(), pdb_id)
+            
+            if pdb_id not in results_dict:
+                results_dict[pdb_id] = {}
+            try:
+                results_dict[pdb_id][bm] = data[pdb_id.lower()]
+            except:
+                print(f"Could not get interaction data for {pdb_id}/{bm}")
+
+    return results_dict
+
+
 def main():
     pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=QUERY_PDB)
     ligand_results = retrieve_data(pdb_ids, URL_TEMPLATES[:2])
     # ligand_df, pfam_df = generate_DFs(ligand_results)
     ligand_df, pfam_df = parallelize(pdb_ids, ligand_results)
     ligand_df = parallelize_SMILE_request(ligand_df)
+    interact_dict = get_interactions(ligand_df)
     return ligand_df, pfam_df
 
 
 # Run the main function
 ligand_df, pfam_df = main()
-ligand_df.to_csv("ligand.csv")
-pfam_df.to_csv("pfam.csv")
+#ligand_df.to_csv("ligand.csv")
+#pfam_df.to_csv("pfam.csv")

@@ -115,19 +115,27 @@ def get_pdb_ids(start, batch_size, query_template):
 
 def fetch_url(pdb_id, url):
     """Fetch data from a given URL with error handling."""
-
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()  # Ensure we catch HTTP errors
-        results =  pdb_id, url, response.json()
-    except requests.RequestException as e:
-        results =  pdb_id, url, str(e)
-        print(f"{pdb_id} could not be retrieved for {url}")
-        print(e)
+    attempts = 0
+    connection_timeout = "HTTPSConnectionPool(host='www.ebi.ac.uk', port=443): Read timed out. (read timeout=10)"
+    while attempts < 5:
+        try:
+            response = requests.get(url, timeout=60)
+            response.raise_for_status()  # Ensure we catch HTTP errors
+            results =  pdb_id, url, response.json()
+            attempts = 5
+        except requests.RequestException as e:
+            results =  pdb_id, url, str(e)
+            if e == connection_timeout:
+                attempts +=1
+            else:
+                attempts = 5
+                print(f"{pdb_id} could not be retrieved for {url.split("/")[-2]}")
+                print(e)
+            if e == connection_timeout and attempts==5: print(f"Connection timeout for {pdb_id}")
     return results
 
 
-def retrieve_data(pdb_ids, URLs):
+def parallelize_pfam_ligand_request(pdb_ids, URLs):
     """Takes a list of URLs and retrieves data for every PDB ID given"""
     
     # We create the tasks to distribute by parallelization
@@ -160,7 +168,7 @@ def retrieve_data(pdb_ids, URLs):
     return results_dict
 
 
-def get_bmids_df(pdb_id, results):
+def get_bmids_rows(pdb_id, results):
     """For a certain PDB_ID and its ligands requests results,
     creates a list of lists containing basic info to create a DF"""
 
@@ -176,7 +184,7 @@ def get_bmids_df(pdb_id, results):
     return new_rows
 
 
-def get_pfam_df(pdb_id, results):
+def get_pfam_rows(pdb_id, results):
     """For a certain PDB_ID and its Pfam requests results, creates
        a list of lists containing basic info to create a DF"""
 
@@ -193,34 +201,7 @@ def get_pfam_df(pdb_id, results):
     return new_rows
 
 
-def generate_DFs(ligand_results):
-    """Takes a PDB Pfam and ligands requests results and
-    creates 2 dataframes containing all the data needed"""
-
-    # Initialize the dataframes
-    ligand_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'ligand_id', "bm_id"])
-    pfam_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'pfam_id', "pfam_name", "start", "end"])
-
-    for pdb_id, urls in ligand_results.items():
-
-        # For every pdb_id, we get multiple lists of data
-        # to be added as rows to the coorespondent dataframe
-        try:
-            new_bmid_rows = get_bmids_df(pdb_id, urls["ligand_url"])
-        except:
-            print(f"No ligand data for {pdb_id}")
-        try:
-            new_pfam_rows = get_pfam_df(pdb_id, urls["Pfam_url"])
-        except:
-            print(f"No Pfam domains for {pdb_id}")
-
-        ligand_df = pd.concat([ligand_df, pd.DataFrame(new_bmid_rows, columns=ligand_df.columns)], ignore_index=True)
-        pfam_df = pd.concat([pfam_df, pd.DataFrame(new_pfam_rows, columns=pfam_df.columns)], ignore_index=True)
-
-    return ligand_df, pfam_df
-
-
-def generate_DFs_parallel(subset_pdb_ids, ligand_results):
+def generate_DFs(subset_pdb_ids, ligand_results):
     """Processes a subset of PDB IDs to create ligand and Pfam DataFrames."""
     
     ligand_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'ligand_id', "bm_id"])
@@ -230,13 +211,13 @@ def generate_DFs_parallel(subset_pdb_ids, ligand_results):
         urls = ligand_results.get(pdb_id, {})
 
         try:
-            new_bmid_rows = get_bmids_df(pdb_id, urls.get("ligand_url", []))
+            new_bmid_rows = get_bmids_rows(pdb_id, urls.get("ligand_url", []))
             ligand_df = pd.concat([ligand_df, pd.DataFrame(new_bmid_rows, columns=ligand_df.columns)], ignore_index=True)
         except Exception:
             print(f"No ligand data for {pdb_id}")
 
         try:
-            new_pfam_rows = get_pfam_df(pdb_id, urls.get("Pfam_url", {}))
+            new_pfam_rows = get_pfam_rows(pdb_id, urls.get("Pfam_url", {}))
             pfam_df = pd.concat([pfam_df, pd.DataFrame(new_pfam_rows, columns=pfam_df.columns)], ignore_index=True)
         except Exception:
             print(f"No Pfam domains for {pdb_id}")
@@ -244,7 +225,7 @@ def generate_DFs_parallel(subset_pdb_ids, ligand_results):
     return ligand_df, pfam_df
 
 
-def parallelize(pdb_ids, ligand_results):
+def parallelize_DFs_generation(pdb_ids, ligand_results):
     """Parallelizes DFs generation"""
 
     # Define number of workers
@@ -256,7 +237,7 @@ def parallelize(pdb_ids, ligand_results):
 
     # Use ProcessPoolExecutor for multiprocessing
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-        results = list(executor.map(generate_DFs_parallel, chunks, [ligand_results] * len(chunks)))
+        results = list(executor.map(generate_DFs, chunks, [ligand_results] * len(chunks)))
 
     # Merge results from all processes
     ligand_df = pd.concat([res[0] for res in results], ignore_index=True)
@@ -300,7 +281,7 @@ def fetch_interaction(pdb_id, bm, url):
     """Gets interaction data for a given pdb and molecule"""
 
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=60)
         response.raise_for_status()  # Ensure we catch HTTP errors
         results = pdb_id, bm, response.json()
     except requests.RequestException as e:
@@ -310,7 +291,7 @@ def fetch_interaction(pdb_id, bm, url):
     return results
 
 
-def get_interactions(ligand_df):
+def parallelize_interactions_request(ligand_df):
     """Parallelizes data retrieval for several pdb_ids and their ligands"""
 
     tuples = list(zip(ligand_df['pdb_id'], ligand_df['bm_id']))
@@ -341,11 +322,10 @@ def get_interactions(ligand_df):
 
 def main():
     pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=QUERY_PDB)
-    ligand_results = retrieve_data(pdb_ids, URL_TEMPLATES[:2])
-    # ligand_df, pfam_df = generate_DFs(ligand_results)
-    ligand_df, pfam_df = parallelize(pdb_ids, ligand_results)
+    ligand_results = parallelize_pfam_ligand_request(pdb_ids, URL_TEMPLATES[:2])
+    ligand_df, pfam_df = parallelize_DFs_generation(pdb_ids, ligand_results)
     ligand_df = parallelize_SMILE_request(ligand_df)
-    interact_dict = get_interactions(ligand_df)
+    interact_dict = parallelize_interactions_request(ligand_df)
     return ligand_df, pfam_df
 
 

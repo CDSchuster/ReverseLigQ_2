@@ -19,5 +19,3 @@
 * Get all data from PDB files instead of requesting it
 
 ## BUGS
-
-* Fix `503/4 server unavailable` error both for ligand/pfam data and interactions data

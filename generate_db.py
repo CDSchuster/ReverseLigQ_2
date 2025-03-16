@@ -1,7 +1,7 @@
 import requests
 import concurrent.futures
 import os
-import time
+from rdkit import Chem
 import json
 import pandas as pd
 
@@ -45,7 +45,7 @@ def fetch_url(pdb_id, url):
     """Fetch data from a given URL with error handling."""
 
     attempts = 0
-    errors_list = ["timeout", "500", "503", "504"]
+    errors_list = ["HTTPSConnectionPool", "500", "503", "504"]
     while attempts < 5:
         try:
             response = requests.get(url, timeout=60)
@@ -205,11 +205,25 @@ def parallelize_SMILE_request(ligand_df):
     return ligand_df
 
 
+def count_atoms(smiles):
+    if not isinstance(smiles, str):  # Check for NaN or non-string values
+        return None  # Mark invalid SMILES
+    mol = Chem.MolFromSmiles(smiles)
+    return mol.GetNumAtoms() if mol else None  # Mark invalid SMILES
+
+
+def filter_small_ligands(ligand_df):
+    ligand_df["num_atoms"] = ligand_df["SMILES"].apply(count_atoms)
+    ligand_df = ligand_df[ligand_df["num_atoms"].notna() &
+                         (ligand_df["num_atoms"] >= 10)].drop(columns=["num_atoms"])
+    return ligand_df
+
+
 def fetch_interaction(pdb_id, bm, url):
     """Gets interaction data for a given pdb and molecule"""
 
     attempts = 0
-    errors_list = ["timeout", "500", "503", "504"]
+    errors_list = ["HTTPSConnectionPool", "500", "503", "504"]
     while attempts < 5:
         try:
             response = requests.get(url, timeout=60)
@@ -281,6 +295,7 @@ def main():
     ligand_results = parallelize_pfam_ligand_request(pdb_ids)
     ligand_df, pfam_df = parallelize_DFs_generation(pdb_ids, ligand_results)
     ligand_df = parallelize_SMILE_request(ligand_df)
+    ligand_df = filter_small_ligands(ligand_df)
     interact_dict = parallelize_interactions_request(ligand_df)
     interactions_df = interactions_to_DF(interact_dict)
     return ligand_df, pfam_df, interactions_df

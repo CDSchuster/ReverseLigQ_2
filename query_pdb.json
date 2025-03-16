@@ -1,0 +1,61 @@
+{
+    "query": {
+        "type": "group",
+        "logical_operator": "and",
+        "nodes": [
+            {
+                "type": "group",
+                "logical_operator": "and",
+                "nodes": [
+                    {
+                        "type": "terminal",
+                        "service": "text",
+                        "parameters": {
+                            "attribute": "rcsb_nonpolymer_instance_annotation.comp_id",
+                            "operator": "exists",
+                            "negation": false
+                        }
+                    },
+                    {
+                        "type": "terminal",
+                        "service": "text",
+                        "parameters": {
+                            "attribute": "rcsb_nonpolymer_instance_annotation.type",
+                            "operator": "exact_match",
+                            "value": "HAS_NO_COVALENT_LINKAGE",
+                            "negation": false
+                        }
+                    }
+                ],
+                "label": "nested-attribute"
+            },
+            {
+                "type": "terminal",
+                "service": "text",
+                "parameters": {
+                    "attribute": "entity_poly.rcsb_entity_polymer_type",
+                    "value": "Protein",
+                    "operator": "exact_match"
+                }
+            }
+        ],
+        "label": "text"
+    },
+    "return_type": "entry",
+    "request_options": {
+        "paginate": {
+            "start": 0,
+            "rows": 10000
+        },
+        "results_content_type": [
+            "experimental"
+        ],
+        "sort": [
+            {
+                "sort_by": "score",
+                "direction": "desc"
+            }
+        ],
+        "scoring_strategy": "combined"
+    }
+}

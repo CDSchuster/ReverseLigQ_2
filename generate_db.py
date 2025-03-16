@@ -2,88 +2,16 @@ import requests
 import concurrent.futures
 import os
 import time
-import pickle 
+import json
 import pandas as pd
 
 
-QUERY_PDB = {
-    "query": {
-        "type": "group",
-        "logical_operator": "and",
-        "nodes": [
-            {
-                "type": "group",
-                "logical_operator": "and",
-                "nodes": [
-                    {
-                        "type": "terminal",
-                        "service": "text",
-                        "parameters": {
-                            "attribute": "rcsb_nonpolymer_instance_annotation.comp_id",
-                            "operator": "exists",
-                            "negation": False
-                        }
-                    },
-                    {
-                        "type": "terminal",
-                        "service": "text",
-                        "parameters": {
-                            "attribute": "rcsb_nonpolymer_instance_annotation.type",
-                            "operator": "exact_match",
-                            "value": "HAS_NO_COVALENT_LINKAGE",
-                            "negation": False
-                        }
-                    }
-                ],
-                "label": "nested-attribute"
-            },
-            {
-                "type": "terminal",
-                "service": "text",
-                "parameters": {
-                    "attribute": "entity_poly.rcsb_entity_polymer_type",
-                    "value": "Protein",
-                    "operator": "exact_match"
-                }
-            }
-        ],
-        "label": "text"
-    },
-    "return_type": "entry",
-    "request_options": {
-        "paginate": {
-            "start": 0,  # Will be updated dynamically
-            "rows": 10000  # Fetch 10,000 results per request
-        },
-        "results_content_type": [
-            "experimental"
-        ],
-        "sort": [
-            {
-                "sort_by": "score",
-                "direction": "desc"
-            }
-        ],
-        "scoring_strategy": "combined"
-    }
-}
-
-QUERY_COMPOUNDS = """query molecule ($id: String!) {
-    chem_comp(comp_id:$id){
-        rcsb_chem_comp_descriptor {
-            SMILES
-            
-        }
-    }
-}"""
-
-URL_TEMPLATES = ["https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_excluding_branched/{pdb_id}",
-                 "https://www.ebi.ac.uk/pdbe/graph-api/mappings/pfam/{pdb_id}",
-                 "https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{pdb_id}/{bm}"]
-
-
-def get_pdb_ids(start, batch_size, query_template):
+def get_pdb_ids(start, batch_size):
     """Retrieves PDB IDs for a specific query in custom batch sizes"""
+
+    # Load query from file
+    with open("query_pdb.json", "r") as file:
+        query_template = json.load(file)
 
     url = "https://search.rcsb.org/rcsbsearch/v2/query"
     headers = {"Content-Type": "application/json"}
@@ -129,9 +57,12 @@ def fetch_url(pdb_id, url):
     return results
 
 
-def parallelize_pfam_ligand_request(pdb_ids, URLs):
+def parallelize_pfam_ligand_request(pdb_ids):
     """Takes a list of URLs and retrieves data for every PDB ID given"""
     
+    URLs = ["https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_excluding_branched/{pdb_id}",
+            "https://www.ebi.ac.uk/pdbe/graph-api/mappings/pfam/{pdb_id}"]
+
     # We create the tasks to distribute by parallelization
     tasks = [(pdb_id, url.format(pdb_id=pdb_id)) for pdb_id in pdb_ids for url in URLs]
 
@@ -241,8 +172,12 @@ def fetch_SMILE_data(het):
     """Requests SMILE data for a given PDB hetcode"""
 
     url = "https://data.rcsb.org/graphql"
+
+    query_compounds = """query molecule ($id: String!) {
+        chem_comp(comp_id:$id){rcsb_chem_comp_descriptor {SMILES}}}"""
+
     try:
-        response = requests.post(url, json={"query": QUERY_COMPOUNDS, "variables": {"id": het}})
+        response = requests.post(url, json={"query": query_compounds, "variables": {"id": het}})
         response.raise_for_status()  # Raise an error for bad status codes
         result = (het, response.json()["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]["SMILES"])
     except requests.RequestException as e:
@@ -285,9 +220,11 @@ def fetch_interaction(pdb_id, bm, url):
 def parallelize_interactions_request(ligand_df):
     """Parallelizes data retrieval for several pdb_ids and their ligands"""
 
+    url_template = "https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{pdb_id}/{bm}"
+
     tuples = list(zip(ligand_df['pdb_id'], ligand_df['bm_id']))
     # We create the tasks to distribute by parallelization
-    tasks = [(tup[0], tup[1], URL_TEMPLATES[2].format(pdb_id=tup[0], bm=tup[1])) for tup in tuples]
+    tasks = [(tup[0], tup[1], url_template.format(pdb_id=tup[0], bm=tup[1])) for tup in tuples]
     
     # Set high concurrency with max_workers (adjust based on system performance)
     MAX_WORKERS = min(500, len(tasks))  # Limits max workers to prevent overload
@@ -311,8 +248,8 @@ def parallelize_interactions_request(ligand_df):
 
 
 def main():
-    pdb_ids = get_pdb_ids(start=0, batch_size=10000, query_template=QUERY_PDB)
-    ligand_results = parallelize_pfam_ligand_request(pdb_ids, URL_TEMPLATES[:2])
+    pdb_ids = get_pdb_ids(start=0, batch_size=10000)
+    ligand_results = parallelize_pfam_ligand_request(pdb_ids)
     ligand_df, pfam_df = parallelize_DFs_generation(pdb_ids, ligand_results)
     ligand_df = parallelize_SMILE_request(ligand_df)
     interact_dict = parallelize_interactions_request(ligand_df)

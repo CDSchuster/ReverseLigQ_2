@@ -43,7 +43,9 @@ def get_pdb_ids(start, batch_size):
 
 def fetch_url(pdb_id, url):
     """Fetch data from a given URL with error handling."""
+
     attempts = 0
+    errors_list = ["timeout", "500", "503", "504"]
     while attempts < 5:
         try:
             response = requests.get(url, timeout=60)
@@ -52,8 +54,8 @@ def fetch_url(pdb_id, url):
             attempts = 5
         except requests.RequestException as e:
             results =  pdb_id, url, str(e)
-            attempts = attempts + 1 if "timeout" in str(e) else (print(e) or 5)
-            if "timeout" in str(e) and attempts==5: print(f"{pdb_id}: {str(e)}")
+            attempts = attempts + 1 if any(err in str(e) for err in errors_list) else (print(e) or 5)
+            if any(err in str(e) for err in errors_list) and attempts==5: print(f"{pdb_id}: {str(e)}")
     return results
 
 
@@ -206,14 +208,18 @@ def parallelize_SMILE_request(ligand_df):
 def fetch_interaction(pdb_id, bm, url):
     """Gets interaction data for a given pdb and molecule"""
 
-    try:
-        response = requests.get(url, timeout=60)
-        response.raise_for_status()  # Ensure we catch HTTP errors
-        results = pdb_id, bm, response.json()
-    except requests.RequestException as e:
-        results =  pdb_id, bm, str(e)
-        print(f"Data could not be retrieved for {url}")
-        print(e)
+    attempts = 0
+    errors_list = ["timeout", "500", "503", "504"]
+    while attempts < 5:
+        try:
+            response = requests.get(url, timeout=60)
+            response.raise_for_status()  # Ensure we catch HTTP errors
+            results = pdb_id, bm, response.json()
+            attempts = 5
+        except requests.RequestException as e:
+            results =  pdb_id, bm, str(e)
+            attempts = attempts + 1 if any(err in str(e) for err in errors_list) else (print(e) or 5)
+            if any(err in str(e) for err in errors_list) and attempts==5: print(f"{pdb_id}: {str(e)}")
     return results
 
 

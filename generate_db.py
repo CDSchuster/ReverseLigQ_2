@@ -116,7 +116,6 @@ def get_pdb_ids(start, batch_size, query_template):
 def fetch_url(pdb_id, url):
     """Fetch data from a given URL with error handling."""
     attempts = 0
-    connection_timeout = "HTTPSConnectionPool(host='www.ebi.ac.uk', port=443): Read timed out. (read timeout=10)"
     while attempts < 5:
         try:
             response = requests.get(url, timeout=60)
@@ -125,13 +124,8 @@ def fetch_url(pdb_id, url):
             attempts = 5
         except requests.RequestException as e:
             results =  pdb_id, url, str(e)
-            if e == connection_timeout:
-                attempts +=1
-            else:
-                attempts = 5
-                print(f"{pdb_id} could not be retrieved for {url.split("/")[-2]}")
-                print(e)
-            if e == connection_timeout and attempts==5: print(f"Connection timeout for {pdb_id}")
+            attempts = attempts + 1 if "timeout" in str(e) else (print(e) or 5)
+            if "timeout" in str(e) and attempts==5: print(f"{pdb_id}: {str(e)}")
     return results
 
 
@@ -140,13 +134,10 @@ def parallelize_pfam_ligand_request(pdb_ids, URLs):
     
     # We create the tasks to distribute by parallelization
     tasks = [(pdb_id, url.format(pdb_id=pdb_id)) for pdb_id in pdb_ids for url in URLs]
-    
-    # Set high concurrency with max_workers (adjust based on system performance)
-    MAX_WORKERS = min(100, len(tasks))  # Limits max workers to prevent overload
 
     # Run all requests in parallel
     results_dict = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=500) as executor:
         results = executor.map(lambda args: fetch_url(*args), tasks)
 
         # Store results in a structured dictionary
@@ -266,7 +257,7 @@ def parallelize_SMILE_request(ligand_df):
     raw_smiles_data = {}
     # Use ThreadPoolExecutor to parallelize requests
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        results = executor.map(fetch_SMILE_data, list(set(ligand_df.ligand_id)))  # Limit to first 10 ligands
+        results = executor.map(fetch_SMILE_data, list(set(ligand_df.ligand_id)))
 
     # Store results in dictionary
     for het, data in results:
@@ -308,7 +299,6 @@ def parallelize_interactions_request(ligand_df):
         
         # Store results in a structured dictionary
         for pdb_id, bm, data in results:
-            #print(data.keys(), pdb_id)
             
             if pdb_id not in results_dict:
                 results_dict[pdb_id] = {}
@@ -331,5 +321,5 @@ def main():
 
 # Run the main function
 ligand_df, pfam_df = main()
-#ligand_df.to_csv("ligand.csv")
-#pfam_df.to_csv("pfam.csv")
+ligand_df.to_csv("ligand.csv")
+pfam_df.to_csv("pfam.csv")

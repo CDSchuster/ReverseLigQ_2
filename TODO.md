@@ -10,7 +10,6 @@
 
 ## FUNCTIONALITY
 
-* Get ligand interactions
 * Recover data failed to request by loading it from PDB files
 * Determine ligand-domain interactions
 * Include Chembl data
@@ -20,3 +19,5 @@
 * Get all data from PDB files instead of requesting it
 
 ## BUGS
+
+* Fix `503/4 server unavailable` error both for ligand/pfam data and interactions data

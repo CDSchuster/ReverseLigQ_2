@@ -247,16 +247,41 @@ def parallelize_interactions_request(ligand_df):
     return results_dict
 
 
+def interactions_to_DF(interactions_dict):
+    """Transforms dict of interactions data into DF"""
+
+    rows = [
+        [
+            pdb_id,
+            interactions["begin"]["chain_id"],
+            interactions["begin"]["chem_comp_id"],
+            bm_data[0]["bm_id"],
+            interactions["end"]["chain_id"],
+            interactions["end"]["chem_comp_id"],
+            interactions["end"]["author_residue_number"]
+        ]
+        for pdb_id, bound_molecules in interactions_dict.items()
+        for bm_data in bound_molecules.values()
+        for interactions in bm_data[0].get("interactions", [])  # Safely handle missing "interactions"
+    ]
+
+    interactions_df = pd.DataFrame(rows, columns=["pdb_id", "ligand_chain_id", "ligand_id", "bm_id","res_chain_id", "resid", "resnum"])
+
+    return interactions_df
+
+
 def main():
     pdb_ids = get_pdb_ids(start=0, batch_size=10000)
     ligand_results = parallelize_pfam_ligand_request(pdb_ids)
     ligand_df, pfam_df = parallelize_DFs_generation(pdb_ids, ligand_results)
     ligand_df = parallelize_SMILE_request(ligand_df)
     interact_dict = parallelize_interactions_request(ligand_df)
-    return ligand_df, pfam_df
+    interactions_df = interactions_to_DF(interact_dict)
+    return ligand_df, pfam_df, interactions_df
 
 
 # Run the main function
-ligand_df, pfam_df = main()
+ligand_df, pfam_df, interactions_df = main()
 ligand_df.to_csv("ligand.csv")
 pfam_df.to_csv("pfam.csv")
+interactions_df.to_csv("interactions.csv")

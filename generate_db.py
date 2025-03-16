@@ -180,7 +180,7 @@ def fetch_SMILE_data(het):
         response = requests.post(url, json={"query": query_compounds, "variables": {"id": het}})
         response.raise_for_status()  # Raise an error for bad status codes
         result = (het, response.json()["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]["SMILES"])
-    except requests.RequestException as e:
+    except Exception as e:
         print(f"Error fetching {het}: {e}")
         result = (het, None)  # Return None in case of an error
     return result

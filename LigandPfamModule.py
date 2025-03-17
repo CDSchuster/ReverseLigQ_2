@@ -178,14 +178,19 @@ def fetch_SMILE_data(het):
     query_compounds = """query molecule ($id: String!) {
         chem_comp(comp_id:$id){rcsb_chem_comp_descriptor {SMILES}}}"""
 
-    try:
-        response = requests.post(url, json={"query": query_compounds, "variables": {"id": het}})
-        response.raise_for_status()  # Raise an error for bad status codes
-        result = (het, response.json()["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]["SMILES"])
-    except Exception as e:
-        print(f"Error fetching {het}: {e}")
-        result = (het, None)  # Return None in case of an error
-    return result
+    attempts = 0
+    while attempts < 5:
+        try:
+            response = requests.post(url, json={"query": query_compounds, "variables": {"id": het}})
+            response.raise_for_status()  # Raise an error for bad status codes
+            result = (het, response.json()["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]["SMILES"])
+            attempts = 5
+        except Exception as e:
+            result = (het, None)  # Return None in case of an error
+            attempts = attempts + 1 if ("429" in str(e)) else (print(e) or 5)
+            if ("429" in str(e)) and attempts==5: print(f"{het}: {str(e)}")
+            
+        return result
 
 
 def parallelize_SMILE_request(ligand_df):

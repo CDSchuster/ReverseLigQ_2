@@ -8,3 +8,4 @@ pdb_results.pkl
 ligand.csv
 pfam.csv
 interactions.csv
+__pycache__

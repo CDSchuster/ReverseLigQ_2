@@ -9,3 +9,5 @@ ligand.csv
 pfam.csv
 interactions.csv
 __pycache__
+interactions_output
+ligand_pfam_output

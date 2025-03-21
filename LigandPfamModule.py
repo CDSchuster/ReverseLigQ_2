@@ -216,7 +216,8 @@ def count_atoms(smiles):
     if not isinstance(smiles, str):  # Check for NaN or non-string values
         return None  # Mark invalid SMILES
     mol = Chem.MolFromSmiles(smiles)
-    return mol.GetNumAtoms() if mol else None  # Mark invalid SMILES
+    atoms_num = mol.GetNumAtoms() if mol else None  # Mark invalid SMILES
+    return atoms_num
 
 
 def filter_small_ligands(ligand_df):
@@ -230,7 +231,7 @@ def filter_small_ligands(ligand_df):
 
 def get_ligand_pfam_data():
 
-    pdb_ids = get_pdb_ids(start=0, batch_size=10000)[:100]
+    pdb_ids = get_pdb_ids(start=0, batch_size=10000)
     ligand_results = parallelize_pfam_ligand_request(pdb_ids)
     ligand_df, pfam_df = parallelize_DFs_generation(pdb_ids, ligand_results)
     ligand_df = parallelize_SMILE_request(ligand_df)

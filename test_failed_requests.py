@@ -1,5 +1,6 @@
 import re
 import LigandPfamModule
+import pandas as pd
 
 
 def extract_pdb_ids(string, errtype):
@@ -37,13 +38,31 @@ def load_pfam_ligand_errors(filename):
     return pfam_failed_ids, ligand_failed_ids
 
 
-pfam_ids, ligand_ids = load_pfam_ligand_errors("ligand_pfam_output")
-ligand_results = LigandPfamModule.parallelize_pfam_ligand_request(ligand_ids)
-ligand_df_ligand, ligand_df_pfam = LigandPfamModule.parallelize_DFs_generation(ligand_ids, ligand_results)
-ligand_results = LigandPfamModule.parallelize_pfam_ligand_request(pfam_ids)
-pfam_df_ligand, pfam_df_pfam = LigandPfamModule.parallelize_DFs_generation(pfam_ids, ligand_results)
+#pfam_ids, ligand_ids = load_pfam_ligand_errors("ligand_pfam_output")
+#ligand_results = LigandPfamModule.parallelize_pfam_ligand_request(ligand_ids)
+#ligand_df_ligand, ligand_df_pfam = LigandPfamModule.parallelize_DFs_generation(ligand_ids, ligand_results)
+#ligand_results = LigandPfamModule.parallelize_pfam_ligand_request(pfam_ids)
+#pfam_df_ligand, pfam_df_pfam = LigandPfamModule.parallelize_DFs_generation(pfam_ids, ligand_results)
 
-ligand_df_ligand.to_csv("ligand_ligand.csv")
-ligand_df_pfam.to_csv("ligand_pfam.csv")
-pfam_df_ligand.to_csv("pfam_ligand.csv")
-pfam_df_pfam.to_csv("pfam_pfam.csv")
+# ligand_df_ligand.to_csv("ligand_ligand.csv")
+# ligand_df_pfam.to_csv("ligand_pfam.csv")
+# pfam_df_ligand.to_csv("pfam_ligand.csv")
+# pfam_df_pfam.to_csv("pfam_pfam.csv")
+
+ligand_df_ligand = pd.read_csv("ligand_ligand.csv", index_col=0)
+pfam_df_pfam = pd.read_csv("pfam_pfam.csv", index_col=0)
+ligand_df_pfam = pd.read_csv("ligand_pfam.csv", index_col=0)
+pfam_df_ligand = pd.read_csv("pfam_ligand.csv", index_col=0)
+
+print("ligand-ligand pdb_ids", len(set(ligand_df_ligand.pdb_id)))
+print("pfam-pfam pdb_ids", len(set(pfam_df_pfam.pdb_id)))
+
+print("ligand-pfam pdb_ids", len(set(ligand_df_pfam.pdb_id)))
+print("pfam-ligand pdb_ids", len(set(pfam_df_ligand.pdb_id)))
+
+
+print("ligand-ligand vs pfam-pfam", set(ligand_df_ligand.pdb_id).intersection(set(pfam_df_pfam.pdb_id)))
+print("ligand-ligand vs ligand-pfam", set(ligand_df_ligand.pdb_id).intersection(set(ligand_df_pfam.pdb_id)))
+print("pfam-ligand vs pfam-pfam", set(pfam_df_ligand.pdb_id).intersection(set(pfam_df_pfam.pdb_id)))
+
+# Comparar con los resultados en el cluster

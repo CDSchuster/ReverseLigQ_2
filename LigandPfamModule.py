@@ -1,3 +1,8 @@
+"""
+This module contains functions to request PDB IDs that are bound to molecules,
+request the ligands data, their SMILEs and the Pfam domains in those PDBs
+"""
+
 import requests
 import concurrent.futures
 import os

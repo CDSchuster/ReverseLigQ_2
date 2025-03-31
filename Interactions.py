@@ -1,10 +1,24 @@
+"""
+The functions in this module are designed to request ligand interactions to proteins and store them in a dataframe
+"""
+
 import requests
 import concurrent.futures
 import pandas as pd
 
 
 def fetch_interaction(pdb_id, bm, url):
-    """Gets interaction data for a given pdb and molecule"""
+    """
+    Gets interaction data for a given pdb and molecule.
+    
+    Args:
+        pdb_id (str): a valid PDB ID
+        bm (str): bound molecule ID
+        url (str): URL to request ligand interactions data
+    
+    Returns:
+        results (tuple): contains PDB ID, bmid (bound molecule ID), and request response 
+    """
 
     attempts = 0
     errors_list = ["HTTPSConnectionPool", "500", "502", "503", "504"]
@@ -22,7 +36,15 @@ def fetch_interaction(pdb_id, bm, url):
 
 
 def parallelize_interactions_request(ligand_df):
-    """Parallelizes data retrieval for several pdb_ids and their ligands"""
+    """
+    Parallelizes data retrieval for several pdb_ids and their ligands.
+    
+    Args:
+        ligand_df (dataframe): dataframe containing ligand data
+    
+    Returns:
+        results_dict (dict): a dictionary containing interaction data for every bm in every PDB
+    """
 
     url_template = "https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{pdb_id}/{bm}"
 
@@ -52,7 +74,15 @@ def parallelize_interactions_request(ligand_df):
 
 
 def interactions_to_DF(interactions_dict):
-    """Transforms dict of interactions data into DF"""
+    """
+    Transforms dict of interactions data into DF.
+    
+    Args:
+        interactions_dict (dict): a dictionary with interactions data for every bm in every PDB
+    
+    Returns:
+        interactions_df (dataframe): dataframe containing ligand interactions data
+    """
 
     rows = [
         [
@@ -75,8 +105,15 @@ def interactions_to_DF(interactions_dict):
 
 
 def get_interaction_data(ligand_df):
-    """Retrieves interactions data for ligands
-    bound to PDBs and returns it as a dataframe"""
+    """
+    Retrieves interactions data for ligands bound to PDBs and returns it as a dataframe.
+    
+    Args:
+        ligand_df (dataframe): a dataframe containing ligand data
+    
+    Returns:
+        interactions_df (dataframe): dataframe containing ligand interactions data
+    """
 
     interact_dict = parallelize_interactions_request(ligand_df)
     interactions_df = interactions_to_DF(interact_dict)

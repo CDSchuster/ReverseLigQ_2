@@ -19,8 +19,6 @@
 
 ## FORMAT
 
-* Add module docstrings
-* Add function docstrings to `generate_db.py` and `Interactions.py`
 * Add `__init__` modules and organize files and folders following a python package structure
 
 ## BUGS

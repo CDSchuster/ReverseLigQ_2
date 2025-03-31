@@ -66,6 +66,7 @@ def fetch_url(pdb_id, url):
     attempts = 0
     # In case we encounter one of the following request errors, we try again up to 5 times
     errors_list = ["HTTPSConnectionPool", "500", "503", "504"]
+    ligand_fails, pfam_fails = [], []
     while attempts < 5:
         try:
             response = requests.get(url, timeout=60)
@@ -78,8 +79,10 @@ def fetch_url(pdb_id, url):
             results =  pdb_id, url, str(e)
             attempts = attempts + 1 if any(err in str(e) for err in errors_list) else (print(e) or 5)
             # Print the error if we failed 5 times
-            if any(err in str(e) for err in errors_list) and attempts==5: print(f"{pdb_id}: {str(e)}")
-    return results
+            if any(err in str(e) for err in errors_list) and attempts==5:
+                print(f"{pdb_id}: {str(e)}")
+                (pfam_fails if ("pfam" in str(e)) else ligand_fails).append(pdb_id)
+    return results, ligand_fails, pfam_fails
 
 
 def parallelize_pfam_ligand_request(pdb_ids):
@@ -105,8 +108,12 @@ def parallelize_pfam_ligand_request(pdb_ids):
 
     # Run all requests in parallel
     results_dict = {}
+    all_ligand_fails, all_pfam_fails = [], []
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=500) as executor:
-        results = executor.map(lambda args: fetch_url(*args), tasks)
+        results, ligand_fails, pfam_fails = executor.map(lambda args: fetch_url(*args), tasks)
+        all_ligand_fails += ligand_fails
+        all_pfam_fails += pfam_fails
 
         # Store results in a structured dictionary
         for pdb_id, url, data in results:
@@ -123,8 +130,8 @@ def parallelize_pfam_ligand_request(pdb_ids):
                     results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
                 except:
                     print(f"Could not get ligand data for {pdb_id}")
-    
-    return results_dict
+    fails_dict = {"pfam_fails":all_pfam_fails, "ligand_fails": all_ligand_fails}
+    return results_dict, fails_dict
 
 
 def get_bmids_rows(pdb_id, results):
@@ -359,10 +366,10 @@ def run_requests(pdb_ids):
             - pfam_df (dataframe): dataframe containing Pfam domain data per PDB ID
     """
 
-    ligand_results = parallelize_pfam_ligand_request(pdb_ids)
+    ligand_results, fails_dict = parallelize_pfam_ligand_request(pdb_ids)
     ligand_df, pfam_df = parallelize_DFs_generation(pdb_ids, ligand_results)
     ligand_df = parallelize_SMILE_request(ligand_df)
-    return ligand_df, pfam_df
+    return ligand_df, pfam_df, fails_dict
 
 
 def get_ligand_pfam_data():
@@ -376,16 +383,16 @@ def get_ligand_pfam_data():
     pdb_ids = get_pdb_ids()
     print(f"Total PDB IDs: {len(pdb_ids)}")
 
-    ligand_df, pfam_df = run_requests(pdb_ids)
+    ligand_df, pfam_df, fails_dict = run_requests(pdb_ids)
     print(f"Successful PDB IDs ligand requests: {len(set(ligand_df.pdb_id))}")
     print(f"Successful PDB IDs Pfam requests: {len(set(pfam_df.pdb_id))}")
     
-    results_dict = {"ligand_df":ligand_df, "pfam_df":pfam_df, "pdb_ids":pdb_ids}
+    results_dict = {"ligand_df":ligand_df, "pfam_df":pfam_df, "fails":fails_dict}
 
     return results_dict
 
 
-def retry_lp_request(ligand_df, pfam_df, pdb_ids):
+def retry_lp_request(ligand_df, pfam_df, fails_dict):
     """
     Requests Pfam and ligand data for PDB IDs that failed request originally.
     Data that could be recovered is added to the input dataframes.
@@ -400,8 +407,8 @@ def retry_lp_request(ligand_df, pfam_df, pdb_ids):
             - pfam_df (dataframe): dataframe containing Pfam domain data per PDB ID
     """
 
-    ligand_pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in list(ligand_df.pdb_id)]
-    pfam_pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in list(pfam_df.pdb_id)]
+    ligand_pdb_ids = fails_dict["ligand_fails"]
+    pfam_pdb_ids = fails_dict["pfam_fails"]
     
     print(f"{len(ligand_pdb_ids)} ligand PDB IDs failed request")
     print(f"{len(pfam_pdb_ids)} Pfam PDB IDs failed request")

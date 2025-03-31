@@ -15,7 +15,7 @@ def main():
     # Step 2: Retry failed ligand and Pfam data requests
     results_dict["ligand_df"], results_dict["pfam_df"] = retry_lp_request(results_dict["ligand_df"],
                                                                           results_dict["pfam_df"],
-                                                                          results_dict["pdb_ids"])
+                                                                          results_dict["fails"])
     
     # Step 3: filter ligand dataframe rows based on the number of atoms in the ligand
     results_dict["ligand_df"] = filter_small_ligands(results_dict["ligand_df"])

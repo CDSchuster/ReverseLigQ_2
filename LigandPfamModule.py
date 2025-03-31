@@ -27,10 +27,11 @@ def get_pdb_ids():
     headers = {"Content-Type": "application/json"}
     
     all_results, found_results = [], True
+    start = 0
     
     while found_results:
         # We set the batch-size for every iteration of requests
-        query_template["request_options"]["paginate"]["start"] = 0
+        query_template["request_options"]["paginate"]["start"] = start
         query_template["request_options"]["paginate"]["rows"] = 10000
 
         response = requests.post(url, json=query_template, headers=headers)
@@ -66,7 +67,7 @@ def fetch_url(pdb_id, url):
     attempts = 0
     # In case we encounter one of the following request errors, we try again up to 5 times
     errors_list = ["HTTPSConnectionPool", "500", "503", "504"]
-    ligand_fails, pfam_fails = [], []
+    
     while attempts < 5:
         try:
             response = requests.get(url, timeout=60)
@@ -81,8 +82,9 @@ def fetch_url(pdb_id, url):
             # Print the error if we failed 5 times
             if any(err in str(e) for err in errors_list) and attempts==5:
                 print(f"{pdb_id}: {str(e)}")
-                (pfam_fails if ("pfam" in str(e)) else ligand_fails).append(pdb_id)
-    return results, ligand_fails, pfam_fails
+                failtype = "pfam_fail" if ("pfam" in url) else "ligand_fail"
+                results = pdb_id, url, failtype
+    return results
 
 
 def parallelize_pfam_ligand_request(pdb_ids):
@@ -111,25 +113,25 @@ def parallelize_pfam_ligand_request(pdb_ids):
     all_ligand_fails, all_pfam_fails = [], []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=500) as executor:
-        results, ligand_fails, pfam_fails = executor.map(lambda args: fetch_url(*args), tasks)
-        all_ligand_fails += ligand_fails
-        all_pfam_fails += pfam_fails
-
+        results = tuple(executor.map(lambda args: fetch_url(*args), tasks))
+        
         # Store results in a structured dictionary
         for pdb_id, url, data in results:
-            
-            if pdb_id not in results_dict:
-                results_dict[pdb_id] = {}
-            if "pfam" in url:
-                try:
-                    results_dict[pdb_id]["Pfam_url"] = data[pdb_id.lower()]["Pfam"]
-                except:
-                    print(f"Could not get Pfam data for {pdb_id}")
+            if data == "pfam_fail": all_pfam_fails.append(pdb_id)
+            elif data == "ligand_fail": all_ligand_fails.append(pdb_id)
             else:
-                try:
-                    results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
-                except:
-                    print(f"Could not get ligand data for {pdb_id}")
+                if pdb_id not in results_dict:
+                    results_dict[pdb_id] = {}
+                if "pfam" in url:
+                    try:
+                        results_dict[pdb_id]["Pfam_url"] = data[pdb_id.lower()]["Pfam"]
+                    except:
+                        print(f"Could not get Pfam data for {pdb_id}")
+                else:
+                    try:
+                        results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
+                    except:
+                        print(f"Could not get ligand data for {pdb_id}")
     fails_dict = {"pfam_fails":all_pfam_fails, "ligand_fails": all_ligand_fails}
     return results_dict, fails_dict
 
@@ -380,7 +382,7 @@ def get_ligand_pfam_data():
         results_dict (dict): a dictionary containing the ligand dataframe, Pfam dataframe and PDB IDs
     """
 
-    pdb_ids = get_pdb_ids()
+    pdb_ids = get_pdb_ids()[:10]
     print(f"Total PDB IDs: {len(pdb_ids)}")
 
     ligand_df, pfam_df, fails_dict = run_requests(pdb_ids)

@@ -14,8 +14,4 @@
 * Determine ligand-domain interactions
 * Include Chembl data
 
-## ALTERNATIVE APPROACHES
-
-* Get all data from PDB files instead of requesting it
-
 ## BUGS

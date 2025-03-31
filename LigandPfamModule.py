@@ -223,17 +223,57 @@ def count_atoms(smiles):
 def filter_small_ligands(ligand_df):
     """Filters rows of ligands_df if ligands are smaller than 10 atoms"""
 
+    pdb_ligand_num, pdb_ligand_ids = len(set(ligand_df.pdb_id)), set(ligand_df.pdb_id)
     ligand_df["num_atoms"] = ligand_df["SMILES"].apply(count_atoms)
     ligand_df = ligand_df[ligand_df["num_atoms"].notna() &
                          (ligand_df["num_atoms"] >= 10)].drop(columns=["num_atoms"])
+    
+    filtered_pdb_num = pdb_ligand_num - len(set(ligand_df.pdb_id))
+    print(f"PDB IDs filtered after small ligand filtering: {filtered_pdb_num}")
+
     return ligand_df
 
 
-def get_ligand_pfam_data():
+def run_requests(pdb_ids):
+    """For a given list of PDB IDs request ligand and Pfam data"""
 
-    pdb_ids = get_pdb_ids(start=0, batch_size=10000)
     ligand_results = parallelize_pfam_ligand_request(pdb_ids)
     ligand_df, pfam_df = parallelize_DFs_generation(pdb_ids, ligand_results)
     ligand_df = parallelize_SMILE_request(ligand_df)
-    ligand_df = filter_small_ligands(ligand_df)
+    return ligand_df, pfam_df
+
+
+def get_ligand_pfam_data():
+    """Gets all PDB IDs with ligands and requests ligand and Pfam data for those"""
+
+    pdb_ids = get_pdb_ids(start=0, batch_size=10000)
+    print(f"Total PDB IDs: {pdb_ids}")
+
+    ligand_df, pfam_df = run_requests(pdb_ids)
+    print(f"Successful PDB IDs ligand requests: {len(set(ligand_df.pdb_id))}")
+    print(f"Successful PDB IDs Pfam requests: {len(set(pfam_df.pdb_id))}")
+    
+    results_dict = {"ligand_df":ligand_df, "pfam_df":pfam_df, "pdb_ids":pdb_ids}
+
+    return results_dict
+
+
+def retry_lp_request(ligand_df, pfam_df, pdb_ids):
+    """Requests Pfam and ligand data for PDB IDs that failed request originally"""
+
+    ligand_pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in list(ligand_df.pdb_id)]
+    pfam_pdb_ids = [pdb_id for pdb_id in pdb_ids if pdb_id not in list(pfam_df.pdb_id)]
+    
+    print(f"{len(ligand_pdb_ids)} ligand PDB IDs failed request")
+    print(f"{len(pfam_pdb_ids)} Pfam PDB IDs failed request")
+
+    ligand_df_ligand, ligand_df_pfam = run_requests(ligand_pdb_ids)
+    pfam_df_ligand, pfam_df_pfam = run_requests(pfam_pdb_ids)
+
+    print(f"Recovered {len(set(ligand_df_ligand.pdb_id))} ligand PDB IDs")
+    print(f"Recovered {len(set(pfam_df_pfam.pdb_id))} Pfam PDB IDs")
+
+    ligand_df = pd.concat([ligand_df, ligand_df_ligand], ignore_index=True)
+    pfam_df = pd.concat([pfam_df, pfam_df_pfam], ignore_index=True)
+
     return ligand_df, pfam_df

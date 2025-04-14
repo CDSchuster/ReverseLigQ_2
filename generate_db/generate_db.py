@@ -72,10 +72,8 @@ def main():
 
     # Step 5: Intersect interactions data and Pfam data
     final_df = intersect_data(results_dict["pfam_df"], results_dict["interactions_df"])
-    final_df.to_csv("final_df.csv")
-
-    return results_dict
+    final_df.to_csv("interactions_DB.csv")
 
 
 if __name__ == "__main__":
-    results_dict = main()
+    main()

@@ -131,4 +131,6 @@ def get_interaction_data(ligand_df):
 
     interact_dict = parallelize_interactions_request(ligand_df)
     interactions_df = interactions_to_DF(interact_dict)
+    interactions_df = interactions_df.merge(ligand_df[['ligand_id', 'SMILES']], on='ligand_id', how='left')
+
     return interactions_df

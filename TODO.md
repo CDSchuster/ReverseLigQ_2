@@ -13,7 +13,6 @@
 * Retry failed SMILE requests
 * Retry failed interactions request
 * Recover data failed to request by loading it from PDB files
-* Determine ligand-domain interactions
 * Include Chembl data
 * Filter those interactions that are not with residues (some are with solvent)
 

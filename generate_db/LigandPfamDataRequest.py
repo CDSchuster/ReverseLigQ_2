@@ -468,13 +468,15 @@ def retry_lp_request(ligand_df, pfam_df, fails_dict):
     print(f"{len(ligand_pdb_ids)} ligand PDB IDs failed request")
     print(f"{len(pfam_pdb_ids)} Pfam PDB IDs failed request")
 
-    ligand_df_ligand, ligand_df_pfam, ligand_fails = run_requests(ligand_pdb_ids)
-    pfam_df_ligand, pfam_df_pfam, pfam_fails = run_requests(pfam_pdb_ids)
-
-    print(f"Recovered {len(set(ligand_df_ligand.pdb_id))} ligand PDB IDs")
-    print(f"Recovered {len(set(pfam_df_pfam.pdb_id))} Pfam PDB IDs")
-
-    ligand_df = pd.concat([ligand_df, ligand_df_ligand], ignore_index=True)
-    pfam_df = pd.concat([pfam_df, pfam_df_pfam], ignore_index=True)
+    if ligand_pdb_ids:
+        ligand_df_ligand, _, _ = run_requests(ligand_pdb_ids)
+        print(f"Recovered {len(set(ligand_df_ligand.pdb_id))} ligand PDB IDs")
+        ligand_df = pd.concat([ligand_df, ligand_df_ligand], ignore_index=True)
+    
+    if pfam_pdb_ids:
+        _, pfam_df_pfam, _ = run_requests(pfam_pdb_ids)
+        print(f"Recovered {len(set(pfam_df_pfam.pdb_id))} Pfam PDB IDs")
+        pfam_df = pd.concat([pfam_df, pfam_df_pfam], ignore_index=True)
+        
 
     return ligand_df, pfam_df

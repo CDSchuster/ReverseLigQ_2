@@ -3,7 +3,7 @@ This module generates a database of ligand interactions to Pfam domains by using
 """
 
 import pandas as pd
-from generate_db.LigandPfamModule import get_ligand_pfam_data, filter_small_ligands, retry_lp_request
+from generate_db.LigandPfamDataRequest import get_ligand_pfam_data, filter_small_ligands, retry_lp_request
 from generate_db.Interactions import get_interaction_data
 
 

@@ -1,6 +1,6 @@
 """
 This module contains functions to request PDB IDs that are bound to molecules,
-request the ligands data, their SMILEs and the Pfam domains in those PDBs
+request their ligands' data (SMILEs included) and the Pfam domains in those PDBs
 """
 
 import requests
@@ -12,11 +12,12 @@ import pandas as pd
 
 
 def get_pdb_ids():
-    """
-    Retrieves PDB IDs for a specific query several batches
+    """Retrieves PDB IDs for a specific query several batches
 
-    Returns:
-        all_ids (list): all the PDB IDs that contain some bound molecule
+    Returns
+    -------
+    all_ids : list
+        all the PDB IDs that contain some bound molecule
     """
 
     # Load query from file
@@ -53,15 +54,19 @@ def get_pdb_ids():
 
 
 def fetch_url(pdb_id, url):
-    """
-    Fetch data from a given URL with error handling.
-    
-    Args:
-        pdb_id (str): a valid PDB ID
-        url (str): URL to request data with the PDB ID
-    
-    Returns:
-        results (tuple): a tuple containing the PDB ID, URL and the response
+    """Fetch data from a given URL with error handling.
+
+    Parameters
+    ----------
+    pdb_id : str
+        a valid PDB ID
+    url : str
+        URL to request data with the PDB ID
+
+    Returns
+    -------
+    results : tuple
+        a tuple containing the PDB ID, URL and the response
     """
 
     attempts = 0
@@ -88,18 +93,26 @@ def fetch_url(pdb_id, url):
 
 
 def parallelize_pfam_ligand_request(pdb_ids):
-    """
-    Takes a list of URLs and parallelizes the retrieval
+    """Takes a list of URLs and parallelizes the retrieval
     of ligand and Pfam data for every PDB ID given.
-    
-    Args:
-        pdb_ids (list): a list of valid PDB IDs
-    
-    Returns:
-        results_dict (dict): a dictionary containing the data for every PDB ID and every URL with the following keys:
-                           - pdb_id (str): the PDB ID
-                           - Pfam_url (str): the Pfam data retrieved for the PDB ID
-                           - ligand_url (str): the ligand data retrieved for the PDB ID
+
+    Parameters
+    ----------
+    pdb_ids : list
+        a list of valid PDB IDs
+
+    Returns
+    -------
+    results_dict : dict
+        
+        A dictionary containing the data for every PDB ID and every URL with the following keys:
+
+            - pdb_id: The PDB ID.
+            - Pfam_url: The Pfam data retrieved for the PDB ID
+            - ligand_url: the ligand data retrieved for the PDB ID
+       
+    fails_dict : dict
+        A dictionary containing the errors for Pfam data and ligand data requests
     """
     
     URLs = ["https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_excluding_branched/{pdb_id}",
@@ -137,17 +150,21 @@ def parallelize_pfam_ligand_request(pdb_ids):
 
 
 def get_bmids_rows(pdb_id, results):
-    """
-    For a certain PDB_ID and its ligands requests results,
+    """For a certain PDB_ID and its ligands requests results,
     creates a list of lists containing the necessary data
     to be used as rows for a dataframe.
-    
-    Args:
-        pdb_id (str): a valid PDB ID
-        results (list): a list of dictionaries, each one containing data of a ligand bound to the PDB ID
-    
-    Returns:
-        new_rows (list): a list of lists where each element is going to be a row in a dataframe
+
+    Parameters
+    ----------
+    pdb_id : str
+        a valid PDB ID
+    results : list
+        a list of dictionaries, each one containing data of a ligand bound to the PDB ID
+
+    Returns
+    -------
+    new_rows : list
+        a list of lists containing PDB ID, Chain ID, ligand hetcode and bm_id
     """
 
     new_rows = []
@@ -163,17 +180,21 @@ def get_bmids_rows(pdb_id, results):
 
 
 def get_pfam_rows(pdb_id, results):
-    """
-    For a certain PDB_ID and its Pfam requests results,
+    """For a certain PDB_ID and its Pfam requests results,
     creates a list of lists containing the necessary data
     to be used as rows for a dataframe.
-    
-    Args:
-        pdb_id (str): a valid PDB ID
-        results (list): a list of dictionaries, each one containing data of a Pfam domain in the PDB ID
-    
-    Returns:
-        new_rows (list): a list of lists where each element is going to be a row in a dataframe
+
+    Parameters
+    ----------
+    pdb_id : str
+        a valid PDB ID
+    results : list
+        a list of dictionaries, each one containing data of a Pfam domain in the PDB ID
+
+    Returns
+    -------
+    new_rows : list
+        a list of lists containing PDB ID, Chain ID, Pfam ID, Pfam name, and Pfam domain start and end positions
     """
 
     new_rows = []
@@ -190,19 +211,21 @@ def get_pfam_rows(pdb_id, results):
 
 
 def generate_DFs(subset_pdb_ids, ligand_results):
-    """
-    Processes a subset of PDB IDs to create ligand and Pfam DataFrames.
-    
-    Args:
-        subset_pdb_ids (list): a list of PDB IDs
-        ligand_results (dict): a dictionary containing Pfam and ligand data for every PDB ID
-    
-    Returns:
-        (ligand_df, pfam_df): A tuple containing:
-    
-    - ligand_df (dataframe): dataframe containing ligand data per PDB ID
-    - pfam_df (dataframe): dataframe containing Pfam domain data per PDB ID
-                
+    """Processes a subset of PDB IDs to create ligand and Pfam DataFrames.
+
+    Parameters
+    ----------
+    subset_pdb_ids : list
+        a list of PDB IDs
+    ligand_results : dict
+        a dictionary containing Pfam and ligand data for every PDB ID
+
+    Returns
+    -------
+    ligand_df : dataframe
+        dataframe containing ligand data per PDB ID
+    pfam_df : dataframe
+        dataframe containing Pfam domain data per PDB ID
     """
     
     ligand_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'ligand_id', "bm_id"])
@@ -227,18 +250,24 @@ def generate_DFs(subset_pdb_ids, ligand_results):
 
 
 def parallelize_DFs_generation(pdb_ids, ligand_results):
-    """
-    Parallelizes ligand and Pfam data DFs generation
-    by giving subsets of data to the function `generate_DFs`.
-    
-    Args:
-        subset_pdb_ids (list): a list of PDB IDs
-        ligand_results (dict): a dictionary containing Pfam and ligand data for every PDB ID
-    
-    Returns:
-        (ligand_df, pfam_df): A tuple containing
-            - ligand_df (dataframe): dataframe containing ligand data per PDB ID
-            - pfam_df (dataframe): dataframe containing Pfam domain data per PDB ID
+    """Parallelizes ligand and Pfam data DFs generation
+    by giving subsets of data to the function :func:`generate_DFs`.
+
+    Parameters
+    ----------
+    subset_pdb_ids : list
+        a list of PDB IDs
+    ligand_results : dict
+        a dictionary containing Pfam and ligand data for every PDB ID
+    pdb_ids :
+        
+
+    Returns
+    -------
+    ligand_df : dataframe
+        dataframe containing ligand data per PDB ID
+    pfam_df : dataframe
+        dataframe containing Pfam domain data per PDB ID
     """
 
     # Define number of workers
@@ -260,14 +289,17 @@ def parallelize_DFs_generation(pdb_ids, ligand_results):
 
 
 def fetch_SMILE_data(het):
-    """
-    Requests SMILE data for a given PDB hetcode.
-    
-    Args:
-        het (str): Description of param1
-    
-    Returns:
-        result (tuple): a tuple containing the hetcode and the request response
+    """Requests SMILE data for a given PDB hetcode.
+
+    Parameters
+    ----------
+    het : str
+        A valid ligand hetcode
+
+    Returns
+    -------
+    result : tuple
+        a tuple containing the hetcode and the request response
     """
 
     url = "https://data.rcsb.org/graphql"
@@ -291,14 +323,17 @@ def fetch_SMILE_data(het):
 
 
 def parallelize_SMILE_request(ligand_df):
-    """
-    Parallelizes requests for SMILEs data to RCSB.
-    
-    Args:
-        ligand_df (dataframe): dataframe containing ligand data (including hetcodes)
-    
-    Returns:
-        ligand_df (dataframe): the same dataframe as the input but with the SMILEs in a new column
+    """Parallelizes requests for SMILEs data to RCSB.
+
+    Parameters
+    ----------
+    ligand_df : dataframe
+        dataframe containing ligand data (including hetcodes)
+
+    Returns
+    -------
+    ligand_df : dataframe
+        the same dataframe as the input but with the SMILEs in a new column
     """
     
     raw_smiles_data = {}
@@ -316,14 +351,17 @@ def parallelize_SMILE_request(ligand_df):
 
 
 def count_atoms(smiles):
-    """
-    Counts the number of atoms for a SMILE.
-    
-    Args:
-        smiles (str): a SMILE code
-    
-    Returns:
-        atoms_num (int): the number of atoms in the SMILE molecule
+    """Counts the number of atoms for a SMILE.
+
+    Parameters
+    ----------
+    smiles : str
+        a SMILE code
+
+    Returns
+    -------
+    atoms_num : int
+        the number of atoms in the SMILE molecule
     """
 
     if not isinstance(smiles, str):  # Check for NaN or non-string values
@@ -334,14 +372,17 @@ def count_atoms(smiles):
 
 
 def filter_small_ligands(ligand_df):
-    """
-    Filters rows of ligands_df if ligands are smaller than 10 atoms.
-    
-    Args:
-        ligand_df (dataframe): Description of param1
-    
-    Returns:
-        ligand_df (dataframe): the input dataframe with rows filtered based on the ligands number of atoms
+    """Filters rows of ligands_df if ligands are smaller than 10 atoms.
+
+    Parameters
+    ----------
+    ligand_df : dataframe
+        A ligand dataframe that includes the column "SMILES"
+
+    Returns
+    -------
+    ligand_df : dataframe
+        the input dataframe with rows filtered based on the ligands number of atoms
     """
 
     pdb_ligand_num = len(set(ligand_df.pdb_id))
@@ -356,16 +397,19 @@ def filter_small_ligands(ligand_df):
 
 
 def run_requests(pdb_ids):
-    """
-    For a given list of PDB IDs request ligand and Pfam data, as well as the SMILEs.
-    
-    Args:
-        pdb_ids (list): a list of valid PDB IDs
-    
-    Returns:
-        (ligand_df, pfam_df): A tuple containing
-            - ligand_df (dataframe): dataframe containing ligand data per PDB ID
-            - pfam_df (dataframe): dataframe containing Pfam domain data per PDB ID
+    """For a given list of PDB IDs, request ligand and Pfam data, as well as their ligand SMILEs.
+
+    Parameters
+    ----------
+    pdb_ids : list
+        a list of valid PDB IDs
+
+    Returns
+    -------
+    ligand_df : dataframe
+        dataframe containing ligand data per PDB ID
+    pfam_df : dataframe
+        dataframe containing Pfam domain data per PDB ID
     """
 
     ligand_results, fails_dict = parallelize_pfam_ligand_request(pdb_ids)
@@ -375,11 +419,13 @@ def run_requests(pdb_ids):
 
 
 def get_ligand_pfam_data():
-    """
-    Gets all PDB IDs with ligands and requests ligand and Pfam data for those.
-    
-    Returns:
-        results_dict (dict): a dictionary containing the ligand dataframe, Pfam dataframe and PDB IDs
+    """Gets all PDB IDs with ligands and requests ligand and Pfam data for those.
+
+    Returns
+    -------
+    results_dict : dict
+        a dictionary containing the ligand dataframe, Pfam dataframe and PDB IDs
+
     """
 
     pdb_ids = get_pdb_ids()
@@ -395,18 +441,25 @@ def get_ligand_pfam_data():
 
 
 def retry_lp_request(ligand_df, pfam_df, fails_dict):
-    """
-    Requests Pfam and ligand data for PDB IDs that failed request originally.
+    """Requests Pfam and ligand data for PDB IDs that failed request originally.
     Data that could be recovered is added to the input dataframes.
-    
-    Args:
-        ligand_df (dataframe): dataframe containing ligand data
-        pfam_df (dataframe): dataframe containing Pfam domains data
-    
-    Returns:
-        (ligand_df, pfam_df): A tuple containing
-            - ligand_df (dataframe): dataframe containing ligand data per PDB ID
-            - pfam_df (dataframe): dataframe containing Pfam domain data per PDB ID
+
+    Parameters
+    ----------
+    ligand_df : dataframe
+        dataframe containing ligand data
+    pfam_df : dataframe
+        dataframe containing Pfam domains data
+    fails_dict : dict
+        dictionary with the lists of PDB IDs that failed ligand and Pfam data requests
+        
+
+    Returns
+    -------
+    ligand_df : dataframe
+        dataframe containing ligand data per PDB ID
+    pfam_df : dataframe
+        dataframe containing Pfam domain data per PDB ID
     """
 
     ligand_pdb_ids = fails_dict["ligand_fails"]

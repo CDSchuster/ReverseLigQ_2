@@ -15,12 +15,10 @@
 * Recover data failed to request by loading it from PDB files
 * Determine ligand-domain interactions
 * Include Chembl data
+* Filter those interactions that are not with residues (some are with solvent)
 
 ## FORMAT
 
-* Fix docstrings of functions changed to imporve ligand/pfam retries
-* Add `__init__` modules and organize files and folders following a python package structure
 
 ## BUGS
 
-* When requesting data, return the PDB IDs that failed to use them later in retries

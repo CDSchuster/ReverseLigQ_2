@@ -428,7 +428,7 @@ def get_ligand_pfam_data():
 
     """
 
-    pdb_ids = get_pdb_ids()[:10]
+    pdb_ids = get_pdb_ids()[:100]
     print(f"Total PDB IDs: {len(pdb_ids)}")
 
     ligand_df, pfam_df, fails_dict = run_requests(pdb_ids)

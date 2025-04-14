@@ -14,7 +14,6 @@
 * Retry failed interactions request
 * Recover data failed to request by loading it from PDB files
 * Include Chembl data
-* Filter those interactions that are not with residues (some are with solvent)
 
 ## FORMAT
 

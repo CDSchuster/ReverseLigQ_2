@@ -129,8 +129,15 @@ def get_interaction_data(ligand_df):
         dataframe containing ligand interactions data
     """
 
+    AAs = ["ALA", "CYS", "ASP", "GLU", "PHE",
+           "GLY", "HIS", "ILE", "LYS", "LEU",
+           "MET", "ASN", "GLN", "PRO", "ARG",
+           "SER", "THR", "VAL", "TRP", "TYR"]
+
     interact_dict = parallelize_interactions_request(ligand_df)
     interactions_df = interactions_to_DF(interact_dict)
+    interactions_df = interactions_df[interactions_df['resid'].isin(AAs)] # Keep only interactions with amino acids
+    # Map SMILES to ligands in interactions data
     interactions_df = interactions_df.merge(ligand_df[['ligand_id', 'SMILES']], on='ligand_id', how='left')
 
     return interactions_df

@@ -21,7 +21,7 @@ def get_pdb_ids():
     """
 
     # Load query from file
-    with open("query_pdb.json", "r") as file:
+    with open("generate_db/query_pdb.json", "r") as file:
         query_template = json.load(file)
 
     url = "https://search.rcsb.org/rcsbsearch/v2/query"
@@ -428,7 +428,7 @@ def get_ligand_pfam_data():
 
     """
 
-    pdb_ids = get_pdb_ids()
+    pdb_ids = get_pdb_ids()[:10]
     print(f"Total PDB IDs: {len(pdb_ids)}")
 
     ligand_df, pfam_df, fails_dict = run_requests(pdb_ids)

@@ -22,12 +22,13 @@ def main():
 
     # Step 4: Retrieve interaction data
     results_dict["interactions_df"] = get_interaction_data(results_dict["ligand_df"])
+
+    results_dict["ligand_df"].to_csv("ligand.csv", index=False)
+    results_dict["pfam_df"].to_csv("pfam.csv", index=False)
+    results_dict["interactions_df"].to_csv("interactions.csv", index=False)
     
     return results_dict
 
 
 if __name__ == "__main__":
     results_dict = main()
-    results_dict["ligand_df"].to_csv("ligand.csv", index=False)
-    results_dict["pfam_df"].to_csv("pfam.csv", index=False)
-    results_dict["interactions_df"].to_csv("interactions.csv", index=False)

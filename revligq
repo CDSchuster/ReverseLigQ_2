@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+import argparse
+from generate_db import generate_db
+
+
+def main():
+    parser = argparse.ArgumentParser(description="A sample script.")
+    parser.add_argument('-arg1', type=str, help="Argument 1")
+    parser.add_argument('-arg2', type=str, help="Argument 2")
+    args = parser.parse_args()
+    generate_db.main()
+
+ 
+if __name__ == "__main__":
+    main()

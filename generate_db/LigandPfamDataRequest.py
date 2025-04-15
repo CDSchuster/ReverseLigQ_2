@@ -74,21 +74,24 @@ def fetch_url(pdb_id, url):
     errors_list = ["HTTPSConnectionPool", "500", "503", "504"]
     
     while attempts < 5:
+
         try:
             response = requests.get(url, timeout=60)
             response.raise_for_status()  # Ensure we catch HTTP errors
             # In case of success, we store pdb_id, url and response in json format
             results =  pdb_id, url, response.json()
             attempts = 5 # To break the while loop
+
         except requests.RequestException as e:
             # We save the error in place of the response, and if the error is in the errors_list, we try again
             results =  pdb_id, url, str(e)
-            attempts = attempts + 1 if any(err in str(e) for err in errors_list) else (print(e) or 5)
-            # Print the error if we failed 5 times
+            if any(err in str(e) for err in errors_list): attempts += 1 
+            else: attempts = 5
+            # Save the error if it failed 5 times
             if any(err in str(e) for err in errors_list) and attempts==5:
-                print(f"{pdb_id}: {str(e)}")
                 failtype = "pfam_fail" if ("pfam" in url) else "ligand_fail"
                 results = pdb_id, url, failtype
+
     return results
 
 
@@ -135,16 +138,12 @@ def parallelize_pfam_ligand_request(pdb_ids):
             else:
                 if pdb_id not in results_dict:
                     results_dict[pdb_id] = {}
-                if "pfam" in url:
-                    try:
-                        results_dict[pdb_id]["Pfam_url"] = data[pdb_id.lower()]["Pfam"]
-                    except:
-                        print(f"Could not get Pfam data for {pdb_id}")
-                else:
-                    try:
-                        results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
-                    except:
-                        print(f"Could not get ligand data for {pdb_id}")
+                if "pfam" in url and type(data)==dict:
+                    results_dict[pdb_id]["Pfam_url"] = data[pdb_id.lower()]["Pfam"]
+                    
+                elif type(data)==dict:
+                    results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
+                    
     fails_dict = {"pfam_fails":all_pfam_fails, "ligand_fails": all_ligand_fails}
     return results_dict, fails_dict
 

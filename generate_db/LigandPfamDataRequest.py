@@ -9,6 +9,10 @@ import os
 from rdkit import Chem
 import json
 import pandas as pd
+import logging
+
+
+log = logging.getLogger("mylogger")
 
 
 def get_pdb_ids():
@@ -86,7 +90,9 @@ def fetch_url(pdb_id, url):
             # We save the error in place of the response, and if the error is in the errors_list, we try again
             results =  pdb_id, url, str(e)
             if any(err in str(e) for err in errors_list): attempts += 1 
-            else: attempts = 5
+            else:
+                attempts = 5
+                log.error(e)
             # Save the error if it failed 5 times
             if any(err in str(e) for err in errors_list) and attempts==5:
                 failtype = "pfam_fail" if ("pfam" in url) else "ligand_fail"
@@ -427,9 +433,11 @@ def get_ligand_pfam_data():
 
     """
 
-    pdb_ids = get_pdb_ids()[:100]
-    print(f"Total PDB IDs: {len(pdb_ids)}")
+    log.info("Retrieving PDB IDs with bound molecules")
+    pdb_ids = get_pdb_ids()[:1000]
+    log.info(f"Total PDB IDs: {len(pdb_ids)}")
 
+    log.info("Requesting ligand and Pfam data")
     ligand_df, pfam_df, fails_dict = run_requests(pdb_ids)
     print(f"Successful PDB IDs ligand requests: {len(set(ligand_df.pdb_id))}")
     print(f"Successful PDB IDs Pfam requests: {len(set(pfam_df.pdb_id))}")

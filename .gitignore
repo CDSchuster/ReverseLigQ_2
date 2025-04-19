@@ -18,3 +18,4 @@ pfam_ligand.csv
 pfam_pfam.csv
 final_df.csv
 interactions_DB.csv
+failures.log

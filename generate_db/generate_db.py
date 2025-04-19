@@ -5,6 +5,10 @@ This module generates a database of ligand interactions to Pfam domains by using
 import pandas as pd
 from generate_db.LigandPfamDataRequest import get_ligand_pfam_data, filter_small_ligands, retry_lp_request
 from generate_db.Interactions import get_interaction_data
+import logging
+
+
+log = logging.getLogger("mylogger")
 
 
 def intersect_data(pfam_data, interactions_data):
@@ -57,6 +61,7 @@ def intersect_data(pfam_data, interactions_data):
 def main():
 
     # Step 1: Retrieve ligand and Pfam data
+    log.info("Starting retrieval of ligand and Pfam data")
     results_dict = get_ligand_pfam_data()
     
     # Step 2: Retry failed ligand and Pfam data requests

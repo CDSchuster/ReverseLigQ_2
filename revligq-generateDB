@@ -14,6 +14,6 @@ def main():
 
  
 if __name__ == "__main__":
-    setup_logging("mylogger")  # Set up once
-    logger = logging.getLogger("mylogger")
+    setup_logging("generateDB_log")  # Set up once
+    logger = logging.getLogger("generateDB_log")
     main()

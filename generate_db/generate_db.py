@@ -8,7 +8,7 @@ from generate_db.Interactions import get_interaction_data
 import logging
 
 
-log = logging.getLogger("mylogger")
+log = logging.getLogger("generateDB_log")
 
 
 def intersect_data(pfam_data, interactions_data):
@@ -65,17 +65,21 @@ def main():
     results_dict = get_ligand_pfam_data()
     
     # Step 2: Retry failed ligand and Pfam data requests
+    log.info("Retrying failed ligand and Pfam data requests")
     results_dict["ligand_df"], results_dict["pfam_df"] = retry_lp_request(results_dict["ligand_df"],
                                                                           results_dict["pfam_df"],
                                                                           results_dict["fails"])
     
     # Step 3: filter ligand dataframe rows based on the number of atoms in the ligand
+    log.info("Filtering small ligands")
     results_dict["ligand_df"] = filter_small_ligands(results_dict["ligand_df"])
 
     # Step 4: Retrieve interaction data
+    log.info("Request interaction data")
     results_dict["interactions_df"] = get_interaction_data(results_dict["ligand_df"])
 
     # Step 5: Intersect interactions data and Pfam data
+    log.info("Merging Pfam and interactions dataframes")
     final_df = intersect_data(results_dict["pfam_df"], results_dict["interactions_df"])
     final_df.to_csv("interactions_DB.csv")
 

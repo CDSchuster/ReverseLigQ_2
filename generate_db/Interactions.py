@@ -5,6 +5,10 @@ The functions in this module are designed to request ligand interactions to prot
 import requests
 import concurrent.futures
 import pandas as pd
+import logging
+
+
+log = logging.getLogger("generateDB_log")
 
 
 def fetch_interaction(pdb_id, bm, url):
@@ -35,8 +39,13 @@ def fetch_interaction(pdb_id, bm, url):
             attempts = 10
         except requests.RequestException as e:
             results =  pdb_id, bm, str(e)
-            attempts = attempts + 1 if any(err in str(e) for err in errors_list) else (print(e) or 10)
-            if any(err in str(e) for err in errors_list) and attempts==10: print(f"{pdb_id}: {str(e)}")
+            if any(err in str(e) for err in errors_list):
+                attempts += 1
+            else:
+                attempts = 10
+                log.error(e)
+            if any(err in str(e) for err in errors_list) and attempts==10:
+                log.error(f"{pdb_id}: {str(e)}")
     return results
 
 
@@ -76,7 +85,7 @@ def parallelize_interactions_request(ligand_df):
             try:
                 results_dict[pdb_id][bm] = data[pdb_id.lower()]
             except:
-                print(f"Could not get interaction data for {pdb_id}/{bm}")
+                log.error(f"Could not get interaction data for {pdb_id}/{bm}")
 
     return results_dict
 
@@ -135,9 +144,12 @@ def get_interaction_data(ligand_df):
            "SER", "THR", "VAL", "TRP", "TYR"]
 
     interact_dict = parallelize_interactions_request(ligand_df)
+    log.info("Converting interactions data to dataframe")
     interactions_df = interactions_to_DF(interact_dict)
+    log.info("Filter out interactions with non-residue molecules")
     interactions_df = interactions_df[interactions_df['resid'].isin(AAs)] # Keep only interactions with amino acids
     # Map SMILES to ligands in interactions data
+    log.info("Merging SMILEs to interactions dataframe")
     interactions_df = interactions_df.merge(ligand_df[['ligand_id', 'SMILES']], on='ligand_id', how='left')
 
     return interactions_df

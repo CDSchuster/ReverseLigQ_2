@@ -12,7 +12,7 @@ import pandas as pd
 import logging
 
 
-log = logging.getLogger("mylogger")
+log = logging.getLogger("generateDB_log")
 
 
 def get_pdb_ids():
@@ -243,13 +243,13 @@ def generate_DFs(subset_pdb_ids, ligand_results):
             new_bmid_rows = get_bmids_rows(pdb_id, urls.get("ligand_url", []))
             ligand_df = pd.concat([ligand_df, pd.DataFrame(new_bmid_rows, columns=ligand_df.columns)], ignore_index=True)
         except Exception:
-            print(f"No ligand data for {pdb_id}")
+            log.error(f"No ligand data for {pdb_id}")
 
         try:
             new_pfam_rows = get_pfam_rows(pdb_id, urls.get("Pfam_url", {}))
             pfam_df = pd.concat([pfam_df, pd.DataFrame(new_pfam_rows, columns=pfam_df.columns)], ignore_index=True)
         except Exception:
-            print(f"No Pfam domains for {pdb_id}")
+            log.error(f"No Pfam domains for {pdb_id}")
 
     return ligand_df, pfam_df
 
@@ -321,8 +321,13 @@ def fetch_SMILE_data(het):
             attempts = 5 # If successful, we have to break the while loop
         except Exception as e:
             result = (het, None)  # Return None in case of an error
-            attempts = attempts + 1 if ("429" in str(e)) else (print(e) or 5)
-            if ("429" in str(e)) and attempts==5: print(f"{het}: {str(e)}")
+            if ("429" in str(e)):
+                attempts += 1
+            else:
+                attempts = 5
+                log.error(e)
+            if ("429" in str(e)) and attempts==5:
+                log.error(f"{het}: {str(e)}")
             
         return result
 
@@ -418,7 +423,9 @@ def run_requests(pdb_ids):
     """
 
     ligand_results, fails_dict = parallelize_pfam_ligand_request(pdb_ids)
+    log.info("Generating ligand and Pfam dataframes")
     ligand_df, pfam_df = parallelize_DFs_generation(pdb_ids, ligand_results)
+    log.info("Requesting SMILEs")
     ligand_df = parallelize_SMILE_request(ligand_df)
     return ligand_df, pfam_df, fails_dict
 
@@ -472,18 +479,17 @@ def retry_lp_request(ligand_df, pfam_df, fails_dict):
     ligand_pdb_ids = fails_dict["ligand_fails"]
     pfam_pdb_ids = fails_dict["pfam_fails"]
     
-    print(f"{len(ligand_pdb_ids)} ligand PDB IDs failed request")
-    print(f"{len(pfam_pdb_ids)} Pfam PDB IDs failed request")
+    log.info(f"{len(ligand_pdb_ids)} ligand PDB IDs failed request that can be recovered")
+    log.info(f"{len(pfam_pdb_ids)} Pfam PDB IDs failed request that can be recovered")
 
     if ligand_pdb_ids:
         ligand_df_ligand, _, _ = run_requests(ligand_pdb_ids)
-        print(f"Recovered {len(set(ligand_df_ligand.pdb_id))} ligand PDB IDs")
+        log.info(f"Recovered {len(set(ligand_df_ligand.pdb_id))} ligand PDB IDs")
         ligand_df = pd.concat([ligand_df, ligand_df_ligand], ignore_index=True)
     
     if pfam_pdb_ids:
         _, pfam_df_pfam, _ = run_requests(pfam_pdb_ids)
-        print(f"Recovered {len(set(pfam_df_pfam.pdb_id))} Pfam PDB IDs")
+        log.info(f"Recovered {len(set(pfam_df_pfam.pdb_id))} Pfam PDB IDs")
         pfam_df = pd.concat([pfam_df, pfam_df_pfam], ignore_index=True)
-        
 
     return ligand_df, pfam_df

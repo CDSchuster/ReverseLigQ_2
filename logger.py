@@ -1,7 +1,7 @@
 import logging
 
 
-def setup_logging(logger_name="mylogger"):
+def setup_logging(logger_name="generateDB_log"):
 
     logger = logging.getLogger(logger_name)
     logger.setLevel(logging.DEBUG)

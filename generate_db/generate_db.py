@@ -29,31 +29,28 @@ def intersect_data(pfam_data, interactions_data):
         An updated version of interactions_data that includes the Pfam domain data
     """
 
-    pfam_ids, pfam_names = [], [] # In these 2 lists we save the Pfam data to add to interaction_data
-    
-    for row in interactions_data.itertuples(index=False):
-        # Iterate interactions_data rows and keep pdb_id, residue chain and residue number
-        pdb_id, res_chain_id, resnum = row.pdb_id, row.res_chain_id, row.resnum
-        # For every combination of pdb_id and chain, we check pfam data in that chain
-        matching_rows = pfam_data[(pfam_data['pdb_id'] == pdb_id) & (pfam_data['chain_id'] == res_chain_id)]
-        
-        found = False
-        # We iterate the pfam_data rows that have that PDB chain
-        for pfrow in matching_rows.itertuples(index=False):
-            # Check if the residue with which the ligand interacts is in the Pfam domain
-            if pfrow.start < resnum < pfrow.end:
-                pfam_ids.append(pfrow.pfam_id)
-                pfam_names.append(pfrow.pfam_name)
-                found = True
-                break  # Stop after first match
-        # If there is a match, we keep the Pfam data, otherwise we will put a NA
-        if not found:
-            pfam_ids.append(pd.NA)
-            pfam_names.append(pd.NA)
+    # First, merge pfam_data with interactions_data on pdb_id and chain_id
+    merged = pd.merge(
+        interactions_data,
+        pfam_data,
+        how="left",
+        left_on=["pdb_id", "res_chain_id"],
+        right_on=["pdb_id", "chain_id"]
+    )
 
-    # Add the new columns
-    interactions_data['pfam_id'] = pfam_ids
-    interactions_data['pfam_name'] = pfam_names
+    # Now filter rows where resnum is within [start, end)
+    within_domain = (merged['resnum'] >= merged['start']) & (merged['resnum'] < merged['end'])
+    matched = merged[within_domain]
+
+    # Drop duplicates to keep the first matching Pfam domain (like your `break`)
+    matched_unique = matched.drop_duplicates(subset=interactions_data.columns.tolist())
+
+    # Re-merge back to original size, keeping unmatched rows with NaNs
+    interactions_with_pfam = interactions_data.merge(
+        matched_unique[["pdb_id", "res_chain_id", "resnum", "pfam_id", "pfam_name"]],
+        on=["pdb_id", "res_chain_id", "resnum"],
+        how="left"
+    )
 
     return interactions_data
 
@@ -82,6 +79,7 @@ def main():
     log.info("Merging Pfam and interactions dataframes")
     final_df = intersect_data(results_dict["pfam_df"], results_dict["interactions_df"])
     final_df.to_csv("interactions_DB.csv")
+    log.info("Done")
 
 
 if __name__ == "__main__":

@@ -150,6 +150,9 @@ def get_interaction_data(ligand_df):
     interactions_df = interactions_df[interactions_df['resid'].isin(AAs)] # Keep only interactions with amino acids
     # Map SMILES to ligands in interactions data
     log.info("Merging SMILEs to interactions dataframe")
-    interactions_df = interactions_df.merge(ligand_df[['ligand_id', 'SMILES']], on='ligand_id', how='left')
+    # Make a dictionary mapping from ligand_id to SMILES
+    ligand_dict = ligand_df.drop_duplicates('ligand_id').set_index('ligand_id')['SMILES']
+    # Map it into the interactions_df
+    interactions_df['SMILES'] = interactions_df['ligand_id'].map(ligand_dict)
 
     return interactions_df

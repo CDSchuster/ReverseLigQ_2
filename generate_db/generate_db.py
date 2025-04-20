@@ -37,7 +37,7 @@ def intersect_data(pfam_data, interactions_data):
         left_on=["pdb_id", "res_chain_id"],
         right_on=["pdb_id", "chain_id"]
     )
-
+    
     # Now filter rows where resnum is within [start, end)
     within_domain = (merged['resnum'] >= merged['start']) & (merged['resnum'] < merged['end'])
     matched = merged[within_domain]
@@ -46,7 +46,7 @@ def intersect_data(pfam_data, interactions_data):
     matched_unique = matched.drop_duplicates(subset=interactions_data.columns.tolist())
 
     # Re-merge back to original size, keeping unmatched rows with NaNs
-    interactions_with_pfam = interactions_data.merge(
+    interactions_data = interactions_data.merge(
         matched_unique[["pdb_id", "res_chain_id", "resnum", "pfam_id", "pfam_name"]],
         on=["pdb_id", "res_chain_id", "resnum"],
         how="left"

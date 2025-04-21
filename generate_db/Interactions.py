@@ -5,19 +5,28 @@ The functions in this module are designed to request ligand interactions to prot
 import requests
 import concurrent.futures
 import pandas as pd
+import logging
+
+
+log = logging.getLogger("generateDB_log")
 
 
 def fetch_interaction(pdb_id, bm, url):
-    """
-    Gets interaction data for a given pdb and molecule.
-    
-    Args:
-        pdb_id (str): a valid PDB ID
-        bm (str): bound molecule ID
-        url (str): URL to request ligand interactions data
-    
-    Returns:
-        results (tuple): contains PDB ID, bmid (bound molecule ID), and request response 
+    """Gets interaction data for a given pdb and molecule.
+
+    Parameters
+    ----------
+    pdb_id : str
+        a valid PDB ID
+    bm : str
+        bound molecule ID
+    url : str
+        URL to request ligand interactions data
+
+    Returns
+    -------
+    results : tuple
+        contains PDB ID, bmid (bound molecule ID), and request response
     """
 
     attempts = 0
@@ -30,20 +39,28 @@ def fetch_interaction(pdb_id, bm, url):
             attempts = 10
         except requests.RequestException as e:
             results =  pdb_id, bm, str(e)
-            attempts = attempts + 1 if any(err in str(e) for err in errors_list) else (print(e) or 10)
-            if any(err in str(e) for err in errors_list) and attempts==10: print(f"{pdb_id}: {str(e)}")
+            if any(err in str(e) for err in errors_list):
+                attempts += 1
+            else:
+                attempts = 10
+                log.error(e)
+            if any(err in str(e) for err in errors_list) and attempts==10:
+                log.error(f"{pdb_id}: {str(e)}")
     return results
 
 
 def parallelize_interactions_request(ligand_df):
-    """
-    Parallelizes data retrieval for several pdb_ids and their ligands.
-    
-    Args:
-        ligand_df (dataframe): dataframe containing ligand data
-    
-    Returns:
-        results_dict (dict): a dictionary containing interaction data for every bm in every PDB
+    """Parallelizes data retrieval for several pdb_ids and their ligands.
+
+    Parameters
+    ----------
+    ligand_df : dataframe
+        dataframe containing ligand data
+
+    Returns
+    -------
+    results_dict : dict
+        a dictionary containing interaction data for every bm in every PDB
     """
 
     url_template = "https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{pdb_id}/{bm}"
@@ -68,20 +85,23 @@ def parallelize_interactions_request(ligand_df):
             try:
                 results_dict[pdb_id][bm] = data[pdb_id.lower()]
             except:
-                print(f"Could not get interaction data for {pdb_id}/{bm}")
+                log.error(f"Could not get interaction data for {pdb_id}/{bm}")
 
     return results_dict
 
 
 def interactions_to_DF(interactions_dict):
-    """
-    Transforms dict of interactions data into DF.
-    
-    Args:
-        interactions_dict (dict): a dictionary with interactions data for every bm in every PDB
-    
-    Returns:
-        interactions_df (dataframe): dataframe containing ligand interactions data
+    """Transforms dict of interactions data into DF.
+
+    Parameters
+    ----------
+    interactions_dict : dict
+        a dictionary with interactions data for every bm in every PDB
+
+    Returns
+    -------
+    interactions_df : dataframe
+        dataframe containing ligand interactions data
     """
 
     rows = [
@@ -105,16 +125,34 @@ def interactions_to_DF(interactions_dict):
 
 
 def get_interaction_data(ligand_df):
-    """
-    Retrieves interactions data for ligands bound to PDBs and returns it as a dataframe.
-    
-    Args:
-        ligand_df (dataframe): a dataframe containing ligand data
-    
-    Returns:
-        interactions_df (dataframe): dataframe containing ligand interactions data
+    """Retrieves interactions data for ligands bound to PDBs and returns it as a dataframe.
+
+    Parameters
+    ----------
+    ligand_df : dataframe
+        a dataframe containing ligand data
+
+    Returns
+    -------
+    interactions_df : dataframe
+        dataframe containing ligand interactions data
     """
 
+    AAs = ["ALA", "CYS", "ASP", "GLU", "PHE",
+           "GLY", "HIS", "ILE", "LYS", "LEU",
+           "MET", "ASN", "GLN", "PRO", "ARG",
+           "SER", "THR", "VAL", "TRP", "TYR"]
+
     interact_dict = parallelize_interactions_request(ligand_df)
+    log.info("Converting interactions data to dataframe")
     interactions_df = interactions_to_DF(interact_dict)
+    log.info("Filter out interactions with non-residue molecules")
+    interactions_df = interactions_df[interactions_df['resid'].isin(AAs)] # Keep only interactions with amino acids
+    # Map SMILES to ligands in interactions data
+    log.info("Merging SMILEs to interactions dataframe")
+    # Make a dictionary mapping from ligand_id to SMILES
+    ligand_dict = ligand_df.drop_duplicates('ligand_id').set_index('ligand_id')['SMILES']
+    # Map it into the interactions_df
+    interactions_df['SMILES'] = interactions_df['ligand_id'].map(ligand_dict)
+
     return interactions_df

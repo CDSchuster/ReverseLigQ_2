@@ -17,7 +17,7 @@ def setup_logging(logger_name="generateDB_log"):
     console_handler.setFormatter(console_formatter)
 
     # File handler: only ERROR and above
-    file_handler = logging.FileHandler('failures.log')
+    file_handler = logging.FileHandler('failures.log', mode='w')
     file_handler.setLevel(logging.ERROR)
     file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(file_formatter)

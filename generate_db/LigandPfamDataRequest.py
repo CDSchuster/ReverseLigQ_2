@@ -83,7 +83,7 @@ def fetch_url(pdb_id, url):
             response = requests.get(url, timeout=60)
             response.raise_for_status()  # Ensure we catch HTTP errors
             # In case of success, we store pdb_id, url and response in json format
-            results =  pdb_id, url, response.json()
+            results = pdb_id, url, response.json()
             attempts = 5 # To break the while loop
 
         except requests.RequestException as e:
@@ -93,8 +93,8 @@ def fetch_url(pdb_id, url):
             else:
                 attempts = 5
                 log.error(e)
-            # Save the error if it failed 5 times
-            if any(err in str(e) for err in errors_list) and attempts==5:
+            # Save the error if it failed 5 times but it is recoverable
+            if any(err in str(e) for err in errors_list):
                 failtype = "pfam_fail" if ("pfam" in url) else "ligand_fail"
                 results = pdb_id, url, failtype
 
@@ -151,6 +151,7 @@ def parallelize_pfam_ligand_request(pdb_ids):
                     results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
                     
     fails_dict = {"pfam_fails":all_pfam_fails, "ligand_fails": all_ligand_fails}
+
     return results_dict, fails_dict
 
 
@@ -401,7 +402,7 @@ def filter_small_ligands(ligand_df):
                          (ligand_df["num_atoms"] >= 10)].drop(columns=["num_atoms"])
     
     filtered_pdb_num = pdb_ligand_num - len(set(ligand_df.pdb_id))
-    print(f"PDB IDs filtered after small ligand filtering: {filtered_pdb_num}")
+    log.info(f"PDB IDs filtered after small ligand filtering: {filtered_pdb_num}")
 
     return ligand_df
 
@@ -441,13 +442,14 @@ def get_ligand_pfam_data():
     """
 
     log.info("Retrieving PDB IDs with bound molecules")
-    pdb_ids = get_pdb_ids()[:1000]
+    pdb_ids = get_pdb_ids()
+    pdb_ids = ["3D12", "5LGJ", "2XE6", "8RHW"]
     log.info(f"Total PDB IDs: {len(pdb_ids)}")
 
     log.info("Requesting ligand and Pfam data")
     ligand_df, pfam_df, fails_dict = run_requests(pdb_ids)
-    print(f"Successful PDB IDs ligand requests: {len(set(ligand_df.pdb_id))}")
-    print(f"Successful PDB IDs Pfam requests: {len(set(pfam_df.pdb_id))}")
+    log.info(f"Successful PDB IDs ligand requests: {len(set(ligand_df.pdb_id))}")
+    log.info(f"Successful PDB IDs Pfam requests: {len(set(pfam_df.pdb_id))}")
     
     results_dict = {"ligand_df":ligand_df, "pfam_df":pfam_df, "fails":fails_dict}
 

@@ -3,12 +3,18 @@ import argparse
 import logging
 
 
-def main():
-    parser = argparse.ArgumentParser(description="A sample script.")
-    parser.add_argument('-arg1', type=str, help="Argument 1")
-    parser.add_argument('-arg2', type=str, help="Argument 2")
+def parse_args():
+    parser = argparse.ArgumentParser(description="This script takes a SMILE, compares its fingerprint to a database of molecules " \
+                                                 "using the Tanimoto coefficient, and returns the most similar molecules.")
+    parser.add_argument("-s", "--smile", type=str, help="A file containing a SMILE string")
+    parser.add_argument("-p", "--protein-seqs", type=str, help="A file containing protein sequences in FASTA format")
     args = parser.parse_args()
+    return args
 
+
+def main():
+    args = parse_args()
  
+
 if __name__ == "__main__":
     main()

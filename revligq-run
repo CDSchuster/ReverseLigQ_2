@@ -8,6 +8,7 @@ def parse_args():
                                                  "using the Tanimoto coefficient, and returns the most similar molecules.")
     parser.add_argument("-s", "--smile", type=str, help="A file containing a SMILE string")
     parser.add_argument("-p", "--protein-seqs", type=str, help="A file containing protein sequences in FASTA format")
+    parser.add_argument("-t", "--tanimoto-threshold", type=float, help="The threshold value for the Tanimoto coefficient", default=0.9)
     args = parser.parse_args()
     return args
 

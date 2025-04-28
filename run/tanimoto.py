@@ -60,62 +60,120 @@ def compare_fingerprints(query_smile, threhsold=0.9):
     
     return filtered_db
 
-def get_pfam_hmm(pfam_id, release='Pfam35.0'):
-    """Download and decompress a Pfam HMM model."""
+
+def get_pfam_hmm(pfam_id):
+    """
+    Downloads the Pfam HMM file for a given Pfam ID from the InterPro database.
+
+    Parameters
+    ----------
+    pfam_id : str
+        The Pfam ID for which to download the HMM file
+
+    Returns
+    -------
+    hmm_path : str
+        The path to the downloaded HMM file
+    temp_dir : str
+        The path to the temporary directory where the HMM file was downloaded
+    """
+
     url = f"https://www.ebi.ac.uk/interpro/wwwapi//entry/pfam/{pfam_id}?annotation=hmm"
-    #base_url = f'https://ftp.ebi.ac.uk/pub/databases/Pfam/releases/{release}/hmm'
-    #url = f'{base_url}/{pfam_id}.hmm.gz'
     print(f'Downloading {pfam_id} from {url}')
+    
+    # Create a temporary directory to store the downloaded files
     temp_dir = tempfile.mkdtemp()
     gz_path = os.path.join(temp_dir, f'{pfam_id}.hmm.gz')
     hmm_path = os.path.join(temp_dir, f'{pfam_id}.hmm')
     
+    # Download the HMM file
     response = requests.get(url)
     if response.status_code != 200:
         raise Exception(f'Failed to download {pfam_id}: HTTP {response.status_code}')
     
+    # Save the gzipped file and extract it
     with open(gz_path, 'wb') as f:
         f.write(response.content)
     
+    # Extract the gzipped file
     with gzip.open(gz_path, 'rb') as f_in:
         with open(hmm_path, 'wb') as f_out:
             shutil.copyfileobj(f_in, f_out)
-    
     os.remove(gz_path)  # remove the compressed file
+
     return hmm_path, temp_dir
 
 
 def run_hmmsearch(hmm_file, fasta_file, output_file):
-    """Run hmmsearch."""
-    with open(output_file, 'w') as out_f:
-        cmd = [
-            "hmmsearch",
-            hmm_file,
-            fasta_file
-        ]
+    """
+    Runs HMMER's hmmsearch command on a given HMM file and a FASTA file.
+
+    Parameters
+    ----------
+    hmm_file : str
+        The path to the HMM file
+    fasta_file : str
+        The path to the FASTA file containing protein sequences
+    output_file : str
+        The path to the output file where the results will be saved
+
+    Returns
+    -------
+    output_file : str
+        The path to the output file containing the results of the hmmsearch
+    """
+
+    with open(output_file, "w") as out_f:
+        cmd = ["hmmsearch", hmm_file, fasta_file]
         subprocess.run(cmd, stdout=out_f, stderr=subprocess.PIPE, check=True)
     return output_file
 
 
-def hmmer_to_proteome(pfam_ids, proteome, release='Pfam35.0', output_dir='hmmsearch_results'):
+def hmmer_to_proteome(pfam_ids, fasta_file, output_dir):
+    """
+    Downloads the HMM files for a list of Pfam IDs and runs HMMER's hmmsearch command on a given FASTA file.
+
+    Parameters
+    ----------
+    pfam_ids : set
+        A set of Pfam IDs for which to download the HMM files and run hmmsearch
+    fasta_file : str
+        The path to the FASTA file containing protein sequences
+    output_dir : str, optional
+        The directory where the output files will be saved, by default 'hmmsearch_results'
+    """
+
     os.makedirs(output_dir, exist_ok=True)
     for pfam_id in pfam_ids:
         if type(pfam_id) == str and "PF" in pfam_id:
-            hmm_path, temp_dir = get_pfam_hmm(pfam_id, release=release)
-            output_file = os.path.join(output_dir, f'{pfam_id}_hmmsearch.out')
-            run_hmmsearch(hmm_path, proteome, output_file)
+            hmm_path, temp_dir = get_pfam_hmm(pfam_id)
+            output_file = os.path.join(output_dir, f"{pfam_id}_hmmsearch.out")
+            run_hmmsearch(hmm_path, fasta_file, output_file)
         
     
+def run_analysis(query_smile, fasta_file, threshold=0.9, output_dir="results"):
+    """
+    Takes a SMILE, compares its fingerprint to a database of molecules using the Tanimoto coefficient,
+    and returns the most similar molecules. It then downloads the HMM files for the matching Pfam IDs
+    and runs HMMER's hmmsearch command on a given FASTA file.
 
-def run_analysis(query_smile, proteome, threshold=0.9, release='Pfam35.0'):
-    
+    Parameters
+    ----------
+    query_smile : str
+        A SMILE string to be compared against the database
+    fasta_file : str
+        The path to the FASTA file containing protein sequences
+    threshold : float, optional
+        A threshold for the Tanimoto coefficient, by default 0.9
+    output_dir : str, optional
+        The directory where the output files will be saved, by default 'results'
+    """
     
     filtered_db = compare_fingerprints(query_smile, threshold)
-    print(set(filtered_db.pfam_id))
-    hmmer_to_proteome(set(filtered_db.pfam_id), proteome)
+    hmmer_to_proteome(set(filtered_db.pfam_id), fasta_file, output_dir)
     
     # Save the filtered database to a CSV file
-    filtered_db.to_csv("filtered_DB.csv", index=False)
+    filtered_db.to_csv(f"{output_dir}/filtered_DB.csv", index=False)
     
 
 run_analysis("CC12CCC3c4ccc(cc4CCC3C1CCC2O)O", "human_proteome.fasta", threshold=0.9)

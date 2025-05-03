@@ -15,7 +15,7 @@ import tempfile
 log = logging.getLogger("run")
 
 
-def compare_fingerprints(query_smile, threhsold=0.9):
+def compare_fingerprints(query_smile, threshold=0.9):
     """
     Takes a SMILE, compares its fingerprint to a database of molecules using the Tanimoto coefficient,
     and returns the most similar molecules.
@@ -53,15 +53,17 @@ def compare_fingerprints(query_smile, threhsold=0.9):
             if mol != None:
                 target_fps[smile] = morgan_gen.GetFingerprint(mol)
 
+    log.info(f"Generated fingerprints for {len(target_fps)} unique SMILES")
     # Bulk Tanimoto similarity
     fps_list = list(target_fps.values())
     smiles_list = list(target_fps.keys())
     similarities = DataStructs.BulkTanimotoSimilarity(query_fp, fps_list)
 
     # Filter interactions_db based on Tanimoto similarity
-    filtered = {smile: sim for smile, sim in zip(smiles_list, similarities) if sim >= threhsold}
+    filtered = {smile: sim for smile, sim in zip(smiles_list, similarities) if sim >= threshold}
     matching_smiles = list(filtered.keys())
     filtered_db = db[db['SMILES'].isin(matching_smiles)]
+    log.info(f"Filtered database contains {len(filtered_db)} entries with Tanimoto similarity >= {threshold}")
     
     return filtered_db
 
@@ -84,7 +86,7 @@ def get_pfam_hmm(pfam_id):
     """
 
     url = f"https://www.ebi.ac.uk/interpro/wwwapi//entry/pfam/{pfam_id}?annotation=hmm"
-    print(f'Downloading {pfam_id} from {url}')
+    log.info(f'Downloading {pfam_id} from {url}')
     
     # Create a temporary directory to store the downloaded files
     temp_dir = tempfile.mkdtemp()
@@ -94,19 +96,22 @@ def get_pfam_hmm(pfam_id):
     # Download the HMM file
     response = requests.get(url)
     if response.status_code != 200:
-        raise Exception(f'Failed to download {pfam_id}: HTTP {response.status_code}')
+        log.warning(f'Failed to download {pfam_id}: HTTP {response.status_code}')
+        result = None
     
-    # Save the gzipped file and extract it
-    with open(gz_path, 'wb') as f:
-        f.write(response.content)
-    
-    # Extract the gzipped file
-    with gzip.open(gz_path, 'rb') as f_in:
-        with open(hmm_path, 'wb') as f_out:
-            shutil.copyfileobj(f_in, f_out)
-    os.remove(gz_path)  # remove the compressed file
+    else:
+        # Save the gzipped file and extract it
+        with open(gz_path, 'wb') as f:
+            f.write(response.content)
+        
+        # Extract the gzipped file
+        with gzip.open(gz_path, 'rb') as f_in:
+            with open(hmm_path, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        result = hmm_path, temp_dir
+        os.remove(gz_path)  # remove the compressed file
 
-    return hmm_path, temp_dir
+    return result
 
 
 def run_hmmsearch(hmm_file, fasta_file, output_file):
@@ -147,13 +152,19 @@ def hmmer_to_proteome(pfam_ids, fasta_file, output_dir):
     output_dir : str, optional
         The directory where the output files will be saved, by default 'hmmsearch_results'
     """
-
+    pfam_ids = list(pfam_ids)+["Foo", 123, "PFXXXX"]
     os.makedirs(output_dir, exist_ok=True)
     for pfam_id in pfam_ids:
         if type(pfam_id) == str and "PF" in pfam_id:
-            hmm_path, temp_dir = get_pfam_hmm(pfam_id)
-            output_file = os.path.join(output_dir, f"{pfam_id}_hmmsearch.out")
-            run_hmmsearch(hmm_path, fasta_file, output_file)
+            log.info(f"Processing Pfam ID: {pfam_id}")
+            results = get_pfam_hmm(pfam_id)
+            if results != None:
+                hmm_path, temp_dir = results
+                output_file = os.path.join(output_dir, f"{pfam_id}_hmmsearch.out")
+                log.info(f"Running hmmsearch for {pfam_id}...")
+                run_hmmsearch(hmm_path, fasta_file, output_file)
+        else:
+            log.warning(f"Invalid Pfam ID: {pfam_id}. Skipping download.")
         
     
 def run_analysis(query_file, fasta_file, threshold=0.9, output_dir="results"):

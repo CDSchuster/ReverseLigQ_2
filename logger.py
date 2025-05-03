@@ -18,7 +18,7 @@ def setup_logging(logger_name, log_filename):
 
     # File handler: only ERROR and above
     file_handler = logging.FileHandler(log_filename, mode='w')
-    file_handler.setLevel(logging.ERROR)
+    file_handler.setLevel(logging.WARNING)
     file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(file_formatter)
 

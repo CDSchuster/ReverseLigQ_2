@@ -42,7 +42,7 @@ def intersect_data(pfam_data, interactions_data):
     within_domain = (merged['resnum'] >= merged['start']) & (merged['resnum'] < merged['end'])
     matched = merged[within_domain]
 
-    # Drop duplicates to keep the first matching Pfam domain (like your `break`)
+    # Drop duplicates to keep the first matching Pfam domain 
     matched_unique = matched.drop_duplicates(subset=interactions_data.columns.tolist())
 
     # Re-merge back to original size, keeping unmatched rows with NaNs

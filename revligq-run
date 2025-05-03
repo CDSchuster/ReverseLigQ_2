@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+import argparse
+import logging
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="This script takes a SMILE, compares its fingerprint to a database of molecules " \
+                                                 "using the Tanimoto coefficient, and returns the most similar molecules.")
+    parser.add_argument("-s", "--smile", type=str, help="A file containing a SMILE string")
+    parser.add_argument("-f", "--protein-seqs", type=str, help="A file containing protein sequences in FASTA format")
+    parser.add_argument("-t", "--tanimoto-threshold", type=float, help="The threshold value for the Tanimoto coefficient", default=0.9)
+    parser.add_argument("-o", "--output-directory", type=str, help="Directory where output files will be saved", default="results")
+    args = parser.parse_args()
+    return args
+
+
+def main():
+    args = parse_args()
+ 
+
+if __name__ == "__main__":
+    main()

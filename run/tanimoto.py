@@ -1,6 +1,7 @@
 from rdkit import Chem
 from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
 import rdkit.DataStructs as DataStructs
+import logging
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
@@ -9,6 +10,9 @@ import gzip
 import shutil
 import subprocess
 import tempfile
+
+
+log = logging.getLogger("run")
 
 
 def compare_fingerprints(query_smile, threhsold=0.9):
@@ -32,6 +36,7 @@ def compare_fingerprints(query_smile, threhsold=0.9):
 
     # Load the database and filter unique SMILES
     db = pd.read_csv("full_DB.csv", index_col=0)
+    log.info(f"Loaded database with {len(db)} entries")
     unique_smiles = db['SMILES'].unique()
     
     morgan_gen = GetMorganGenerator(radius=2, fpSize=2048)
@@ -151,7 +156,7 @@ def hmmer_to_proteome(pfam_ids, fasta_file, output_dir):
             run_hmmsearch(hmm_path, fasta_file, output_file)
         
     
-def run_analysis(query_smile, fasta_file, threshold=0.9, output_dir="results"):
+def run_analysis(query_file, fasta_file, threshold=0.9, output_dir="results"):
     """
     Takes a SMILE, compares its fingerprint to a database of molecules using the Tanimoto coefficient,
     and returns the most similar molecules. It then downloads the HMM files for the matching Pfam IDs
@@ -169,11 +174,11 @@ def run_analysis(query_smile, fasta_file, threshold=0.9, output_dir="results"):
         The directory where the output files will be saved, by default 'results'
     """
     
+    with open(query_file, "r") as f:
+        query_smile = f.read().strip()
+
     filtered_db = compare_fingerprints(query_smile, threshold)
     hmmer_to_proteome(set(filtered_db.pfam_id), fasta_file, output_dir)
     
     # Save the filtered database to a CSV file
     filtered_db.to_csv(f"{output_dir}/filtered_DB.csv", index=False)
-    
-
-run_analysis("CC12CCC3c4ccc(cc4CCC3C1CCC2O)O", "human_proteome.fasta", threshold=0.9)

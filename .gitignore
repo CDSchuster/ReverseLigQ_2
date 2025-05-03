@@ -5,3 +5,5 @@ failures.log
 results
 full_DB.csv
 human_proteome.fasta
+estradiol_smile
+run_errors.log

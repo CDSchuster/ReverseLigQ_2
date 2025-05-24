@@ -312,14 +312,15 @@ def fetch_SMILE_data(het):
     url = "https://data.rcsb.org/graphql"
 
     query_compounds = """query molecule ($id: String!) {
-        chem_comp(comp_id:$id){rcsb_chem_comp_descriptor {SMILES}}}"""
+        chem_comp(comp_id:$id){rcsb_chem_comp_descriptor {SMILES, SMILES_stereo}}}"""
 
     attempts = 0
     while attempts < 5: # In case there is a 429 request error, it will keep trying up to 5 times
         try:
             response = requests.post(url, json={"query": query_compounds, "variables": {"id": het}})
             response.raise_for_status()  # Raise an error for bad status codes
-            result = (het, response.json()["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]["SMILES"])
+            result = (het, response.json()["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]["SMILES"],
+                      response.json()["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]["SMILES_stereo"])
             attempts = 5 # If successful, we have to break the while loop
         except Exception as e:
             result = (het, None)  # Return None in case of an error
@@ -354,8 +355,11 @@ def parallelize_SMILE_request(ligand_df):
         results = executor.map(fetch_SMILE_data, list(set(ligand_df.ligand_id)))
 
     # Store results in dictionary
-    for het, data in results:
-        raw_smiles_data[het] = data
+    for het, smiles, smiles_stereo in results:
+        if smiles != None:
+            raw_smiles_data[het] = smiles
+        else:
+            raw_smiles_data[het] = smiles_stereo
     
     ligand_df["SMILES"] = ligand_df["ligand_id"].map(raw_smiles_data)
     
@@ -376,10 +380,11 @@ def count_atoms(smiles):
         the number of atoms in the SMILE molecule
     """
 
-    if not isinstance(smiles, str):  # Check for NaN or non-string values
-        return None  # Mark invalid SMILES
-    mol = Chem.MolFromSmiles(smiles)
-    atoms_num = mol.GetNumAtoms() if mol else None  # Mark invalid SMILES
+    atoms_num = None
+    if type(smiles) == str:  # Check for NaN or non-string values
+        mol = Chem.MolFromSmiles(smiles)
+        mol=Chem.AddHs(mol)
+        atoms_num = mol.GetNumAtoms() if mol else None  # Mark invalid SMILES
     return atoms_num
 
 

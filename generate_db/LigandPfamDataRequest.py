@@ -414,8 +414,7 @@ def count_atoms(smiles):
 
     atoms_num = None
     if type(smiles) == str:  # Check for NaN or non-string values
-        mol = Chem.MolFromSmiles(smiles)
-        mol=Chem.AddHs(mol)
+        mol = Chem.MolFromSmiles(smiles, sanitize = False)
         atoms_num = mol.GetNumAtoms() if mol else None  # Mark invalid SMILES
     return atoms_num
 
@@ -484,7 +483,8 @@ def get_ligand_pfam_data():
     
     log.info(f"Total PDB IDs: {len(pdb_ids)}")
     log.info("Requesting ligand and Pfam data")
-    ligand_df, pfam_df, fails_dict = run_requests(pdb_ids[:2500])
+
+    ligand_df, pfam_df, fails_dict = run_requests(pdb_ids)
     log.info(f"Successful PDB IDs ligand requests: {len(set(ligand_df.pdb_id))}")
     log.info(f"Successful PDB IDs Pfam requests: {len(set(pfam_df.pdb_id))}")
     

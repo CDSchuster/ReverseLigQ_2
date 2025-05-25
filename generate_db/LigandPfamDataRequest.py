@@ -295,6 +295,41 @@ def parallelize_DFs_generation(pdb_ids, ligand_results):
     return ligand_df, pfam_df
 
 
+def smile_selection(response_json):
+    """Selects the SMILE code from the response JSON.
+    The SMILE code can be in the RCSB or PDBx data.
+    If it is in both, we select the RCSB one.
+    If it is in neither, we return None.
+
+    Parameters
+    ----------
+    response_json : dict
+        A json dictionary containing the response from the RCSB API
+        with the SMILES for a given PDB ID
+
+    Returns
+    -------
+    selected_smile : str
+        A SMILE code for the ligand in the PDB ID
+    """
+
+    selected_smile = None
+    rcsb_smiles = response_json["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]
+    pdbx_smiles = response_json["data"]["chem_comp"]['pdbx_chem_comp_descriptor']
+    # We check if the SMILES are in the RCSB or PDBx data
+    # and if they are, we select the first one
+    if rcsb_smiles["SMILES"] != None: selected_smile = rcsb_smiles["SMILES"]
+    elif rcsb_smiles["SMILES_stereo"] != None: selected_smile = rcsb_smiles["SMILES_stereo"]
+    else:
+        i = 0
+        while selected_smile == None and i < len(pdbx_smiles):
+            if pdbx_smiles[i]["type"] in ["SMILES", "SMILES_CANONICAL"]:
+                selected_smile = pdbx_smiles[i]["descriptor"]
+            i += 1
+        
+    return selected_smile
+
+
 def fetch_SMILE_data(het):
     """Requests SMILE data for a given PDB hetcode.
 
@@ -311,17 +346,19 @@ def fetch_SMILE_data(het):
 
     url = "https://data.rcsb.org/graphql"
 
-    query_compounds = """query molecule ($id: String!) {
-        chem_comp(comp_id:$id){rcsb_chem_comp_descriptor {SMILES, SMILES_stereo}}}"""
+    query_compounds = """query molecule ($id: String!) {chem_comp(comp_id:$id){
+                                                    rcsb_chem_comp_descriptor {SMILES SMILES_stereo}
+                                                    pdbx_chem_comp_descriptor {type descriptor}}}"""
 
     attempts = 0
     while attempts < 5: # In case there is a 429 request error, it will keep trying up to 5 times
         try:
             response = requests.post(url, json={"query": query_compounds, "variables": {"id": het}})
             response.raise_for_status()  # Raise an error for bad status codes
-            result = (het, response.json()["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]["SMILES"],
-                      response.json()["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]["SMILES_stereo"])
+            result = (het, smile_selection(response.json()))
+            
             attempts = 5 # If successful, we have to break the while loop
+           
         except Exception as e:
             result = (het, None)  # Return None in case of an error
             if ("429" in str(e)):
@@ -331,8 +368,8 @@ def fetch_SMILE_data(het):
                 log.error(e)
             if ("429" in str(e)) and attempts==5:
                 log.error(f"{het}: {str(e)}")
-            
-        return result
+        
+    return result
 
 
 def parallelize_SMILE_request(ligand_df):
@@ -353,14 +390,9 @@ def parallelize_SMILE_request(ligand_df):
     # Use ThreadPoolExecutor to parallelize requests
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         results = executor.map(fetch_SMILE_data, list(set(ligand_df.ligand_id)))
-
-    # Store results in dictionary
-    for het, smiles, smiles_stereo in results:
-        if smiles != None:
-            raw_smiles_data[het] = smiles
-        else:
-            raw_smiles_data[het] = smiles_stereo
     
+    # Store results in dictionary and map them to the ligand_df
+    raw_smiles_data = dict(results)
     ligand_df["SMILES"] = ligand_df["ligand_id"].map(raw_smiles_data)
     
     return ligand_df
@@ -451,9 +483,8 @@ def get_ligand_pfam_data():
     pdb_ids = get_pdb_ids()
     
     log.info(f"Total PDB IDs: {len(pdb_ids)}")
-
     log.info("Requesting ligand and Pfam data")
-    ligand_df, pfam_df, fails_dict = run_requests(pdb_ids)
+    ligand_df, pfam_df, fails_dict = run_requests(pdb_ids[:2500])
     log.info(f"Successful PDB IDs ligand requests: {len(set(ligand_df.pdb_id))}")
     log.info(f"Successful PDB IDs Pfam requests: {len(set(pfam_df.pdb_id))}")
     

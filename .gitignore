@@ -7,3 +7,4 @@ full_DB.csv
 human_proteome.fasta
 estradiol_smile
 run_errors.log
+DB_gen_errors.log

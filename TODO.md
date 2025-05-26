@@ -10,7 +10,6 @@
 
 ## FUNCTIONALITY
 
-* Retry failed SMILE requests
 * Retry failed interactions request
 * Recover data failed to request by loading it from PDB files
 * Include Chembl data

@@ -178,10 +178,10 @@ def run_analysis(query_file, fasta_file, output_dir, threshold=0.9):
         A SMILE string to be compared against the database
     fasta_file : str
         The path to the FASTA file containing protein sequences
+    output_dir : str
+        The directory where the output files will be saved, by default 'results'
     threshold : float, optional
         A threshold for the Tanimoto coefficient, by default 0.9
-    output_dir : str, optional
-        The directory where the output files will be saved, by default 'results'
     """
     
     with open(query_file, "r") as f:

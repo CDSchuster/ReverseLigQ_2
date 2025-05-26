@@ -32,24 +32,26 @@ def fetch_interaction(pdb_id, bm, url):
     attempts = 0
     errors_list = ["HTTPSConnectionPool", "500", "502", "503", "504"]
     while attempts < 10:
-        try:
+        try: # Save the results if the request is successful
             response = requests.get(url, timeout=120)
             response.raise_for_status()  # Ensure we catch HTTP errors
             results = pdb_id, bm, response.json()
             attempts = 10
         except requests.RequestException as e:
-            results =  pdb_id, bm, str(e)
+            results =  pdb_id, bm, str(e) 
             if any(err in str(e) for err in errors_list):
-                attempts += 1
-            else:
+                attempts += 1 # If the error is recoverable, we retry
+            else: # If the error is not recoverable, we stop trying
                 attempts = 10
                 log.error(e)
-            if any(err in str(e) for err in errors_list) and attempts==10:
-                log.error(f"{pdb_id}: {str(e)}")
+            # Save the error if it failed 5 times but it is recoverable
+            if any(err in str(e) for err in errors_list):
+                # Return a special value to indicate recoverable failure
+                results = pdb_id, bm, "recoverable_fail"
     return results
 
 
-def parallelize_interactions_request(ligand_df):
+def parallelize_interactions_request(tuples):
     """Parallelizes data retrieval for several pdb_ids and their ligands.
 
     Parameters
@@ -65,7 +67,6 @@ def parallelize_interactions_request(ligand_df):
 
     url_template = "https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_molecule_interactions/{pdb_id}/{bm}"
 
-    tuples = list(zip(ligand_df['pdb_id'], ligand_df['bm_id']))
     # We create the tasks to distribute by parallelization
     tasks = [(tup[0], tup[1], url_template.format(pdb_id=tup[0], bm=tup[1])) for tup in tuples]
     
@@ -73,21 +74,20 @@ def parallelize_interactions_request(ligand_df):
     MAX_WORKERS = min(500, len(tasks))  # Limits max workers to prevent overload
 
     # Run all requests in parallel
-    results_dict = {}
+    results_dict, recoverable_fails = {}, []
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         results = executor.map(lambda args: fetch_interaction(*args), tasks)
         
         # Store results in a structured dictionary
         for pdb_id, bm, data in results:
-            
-            if pdb_id not in results_dict:
-                results_dict[pdb_id] = {}
-            try:
+            if data == "recoverable_fail":
+                recoverable_fails.append((pdb_id, bm))
+            else:
+                if pdb_id not in results_dict:
+                    results_dict[pdb_id] = {}
                 results_dict[pdb_id][bm] = data[pdb_id.lower()]
-            except:
-                log.error(f"Could not get interaction data for {pdb_id}/{bm}")
 
-    return results_dict
+    return results_dict, recoverable_fails
 
 
 def interactions_to_DF(interactions_dict):
@@ -143,9 +143,22 @@ def get_interaction_data(ligand_df):
            "MET", "ASN", "GLN", "PRO", "ARG",
            "SER", "THR", "VAL", "TRP", "TYR"]
 
-    interact_dict = parallelize_interactions_request(ligand_df)
+    # First attempt to retrieve interactions data for all ligands
+    tuples = list(zip(ligand_df['pdb_id'], ligand_df['bm_id']))
+    interact_dict, recoverable_fails = parallelize_interactions_request(tuples)
     log.info("Converting interactions data to dataframe")
     interactions_df = interactions_to_DF(interact_dict)
+
+    # Retry for recoverable fails
+    log.info(f"Retrying {len(recoverable_fails)} recoverable fails")
+    recovered_interact_dict, _ = parallelize_interactions_request(recoverable_fails)
+    log.info("Converting recovered interactions data to dataframe")
+    recovered_interactions_df = interactions_to_DF(recovered_interact_dict)
+    recovered_num = recovered_interactions_df[['pdb_id', 'bm_id']].drop_duplicates().shape[0]
+    log.info(f"Recovered {recovered_num} pairs of PDB and bound molecule interactions")
+
+    # Append recovered interactions to the main dataframe
+    interactions_df = pd.concat([interactions_df, recovered_interactions_df], ignore_index=True)
     log.info("Filter out interactions with non-residue molecules")
     interactions_df = interactions_df[interactions_df['resid'].isin(AAs)] # Keep only interactions with amino acids
     # Map SMILES to ligands in interactions data

@@ -11,6 +11,7 @@
 ## FUNCTIONALITY
 
 * Retry failed interactions request
+* Why the unrecoverable ligand and pfam data does not cause trouble when creating the dataframes
 * Recover data failed to request by loading it from PDB files
 * Include Chembl data
 

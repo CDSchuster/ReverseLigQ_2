@@ -1,3 +1,10 @@
+"""
+This module contains functions to compare molecular fingerprints using the Tanimoto coefficient,
+download Pfam HMM files, and run HMMER's hmmsearch command on protein sequences. It is designed to
+identify similar molecules based on their SMILES representation and to analyze protein sequences
+for specific Pfam domains.
+"""
+
 from rdkit import Chem
 from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
 import rdkit.DataStructs as DataStructs

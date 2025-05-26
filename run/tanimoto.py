@@ -152,8 +152,7 @@ def hmmer_to_proteome(pfam_ids, fasta_file, output_dir):
     output_dir : str, optional
         The directory where the output files will be saved, by default 'hmmsearch_results'
     """
-    pfam_ids = list(pfam_ids)+["Foo", 123, "PFXXXX"]
-    os.makedirs(output_dir, exist_ok=True)
+    
     for pfam_id in pfam_ids:
         if type(pfam_id) == str and "PF" in pfam_id:
             log.info(f"Processing Pfam ID: {pfam_id}")
@@ -167,7 +166,7 @@ def hmmer_to_proteome(pfam_ids, fasta_file, output_dir):
             log.warning(f"Invalid Pfam ID: {pfam_id}. Skipping download.")
         
     
-def run_analysis(query_file, fasta_file, threshold=0.9, output_dir="results"):
+def run_analysis(query_file, fasta_file, output_dir, threshold=0.9):
     """
     Takes a SMILE, compares its fingerprint to a database of molecules using the Tanimoto coefficient,
     and returns the most similar molecules. It then downloads the HMM files for the matching Pfam IDs

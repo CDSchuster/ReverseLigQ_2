@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import argparse
 import logging
 from logger import setup_logging
@@ -17,8 +18,7 @@ def parse_args():
     return args
 
 
-def main():
-    args = parse_args()
+def main(args):
     tanimoto.run_analysis(
         query_file=args.smile,
         fasta_file=args.protein_seqs,
@@ -28,6 +28,8 @@ def main():
  
 
 if __name__ == "__main__":
-    logger = setup_logging("run", "run_errors.log")  # Set up once
+    args = parse_args()
+    os.makedirs(args.output_directory, exist_ok=True)
+    logger = setup_logging("run", f"{args.output_directory}/run_errors.log")  # Set up once
     logger = logging.getLogger("run")
-    main()
+    main(args)

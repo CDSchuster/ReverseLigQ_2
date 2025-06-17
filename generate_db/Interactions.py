@@ -30,7 +30,7 @@ def fetch_interaction(pdb_id, bm, url):
     """
 
     attempts = 0
-    errors_list = ["HTTPSConnectionPool", "500", "502", "503", "504"]
+    errors_list = ["HTTPSConnectionPool", "RemoteDisconnected", "500", "502", "503", "504"]
     while attempts < 10:
         try: # Save the results if the request is successful
             response = requests.get(url, timeout=120)

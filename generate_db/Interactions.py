@@ -151,7 +151,12 @@ def get_interaction_data(ligand_df):
 
     # Retry for recoverable fails
     log.info(f"Retrying {len(recoverable_fails)} recoverable fails")
-    recovered_interact_dict, _ = parallelize_interactions_request(recoverable_fails)
+    recovered_interact_dict, recoverable_fails = parallelize_interactions_request(recoverable_fails)
+
+    with open("non_recovered_fails.txt", "w") as f:
+        for item in recoverable_fails:
+            f.write(f"{item[0]}\t{item[1]}\n")
+    
     log.info("Converting recovered interactions data to dataframe")
     recovered_interactions_df = interactions_to_DF(recovered_interact_dict)
     recovered_num = recovered_interactions_df[['pdb_id', 'bm_id']].drop_duplicates().shape[0]

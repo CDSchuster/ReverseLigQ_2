@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.abspath('../..'))  # Adjust path if needed
 project = 'ReverseLigQ_2'
 copyright = '2025, Claudio D. Schuster'
 author = 'Claudio D. Schuster'
+email = "claudio.schuster.93@gmail.com"
 release = '2.0.0'
 
 # -- General configuration ---------------------------------------------------

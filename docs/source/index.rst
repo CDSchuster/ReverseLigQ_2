@@ -6,6 +6,8 @@ Welcome to ReverseLigQ_2's documentation!
    :caption: Contents:
 
    generate_db
+   run
+   revligq-run
 
 Indices and tables
 ==================

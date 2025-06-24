@@ -10,7 +10,6 @@
 
 ## FUNCTIONALITY
 
-* Retry failed interactions request
 * Why the unrecoverable ligand and pfam data does not cause trouble when creating the dataframes
 * Recover data failed to request by loading it from PDB files
 * Include Chembl data
@@ -18,3 +17,7 @@
 ## FORMAT
 
 ## BUGS
+
+* When filtering small molecules, some of those remain
+* There are duplicated rows
+* Some SMILES are missing

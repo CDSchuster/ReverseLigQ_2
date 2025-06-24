@@ -11,3 +11,4 @@ DB_gen_errors.log
 input_files
 encoding_testings/.ipynb_checkpoints/Untitled-checkpoint.ipynb
 run/.ipynb_checkpoints/chembert-checkpoint.py
+interactions_DB_small.csv

@@ -433,6 +433,7 @@ def filter_small_ligands(ligand_df):
         the input dataframe with rows filtered based on the ligands number of atoms
     """
 
+    ligand_df = ligand_df[ligand_df["ligand_id"] != "UNL"]
     pdb_ligand_num = len(set(ligand_df.pdb_id))
     ligand_df["num_atoms"] = ligand_df["SMILES"].apply(count_atoms)
     ligand_df = ligand_df[ligand_df["num_atoms"].notna() &

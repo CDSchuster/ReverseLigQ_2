@@ -17,7 +17,3 @@
 ## FORMAT
 
 ## BUGS
-
-* When filtering small molecules, some of those remain
-* There are duplicated rows
-* Some SMILES are missing

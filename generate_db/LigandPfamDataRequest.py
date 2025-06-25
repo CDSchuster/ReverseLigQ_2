@@ -351,9 +351,10 @@ def fetch_SMILE_data(het):
                                                     pdbx_chem_comp_descriptor {type descriptor}}}"""
 
     attempts = 0
+    errors_list = ["429", "HTTPSConnectionPool", "RemoteDisconnected"]
     while attempts < 5: # In case there is a 429 request error, it will keep trying up to 5 times
         try:
-            response = requests.post(url, json={"query": query_compounds, "variables": {"id": het}})
+            response = requests.post(url, json={"query": query_compounds, "variables": {"id": het}}, timeout=60)
             response.raise_for_status()  # Raise an error for bad status codes
             result = (het, smile_selection(response.json()))
             
@@ -361,12 +362,12 @@ def fetch_SMILE_data(het):
            
         except Exception as e:
             result = (het, None)  # Return None in case of an error
-            if ("429" in str(e)):
+            if any(err in str(e) for err in errors_list):
                 attempts += 1
             else:
                 attempts = 5
                 log.error(e)
-            if ("429" in str(e)) and attempts==5:
+            if any(err in str(e) for err in errors_list) and attempts==5:
                 log.error(f"{het}: {str(e)}")
         
     return result

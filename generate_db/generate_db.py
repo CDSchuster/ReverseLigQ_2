@@ -51,6 +51,7 @@ def intersect_data(pfam_data, interactions_data):
         on=["pdb_id", "res_chain_id", "resnum"],
         how="left"
     )
+    interactions_data = interactions_data.dropna(subset=["SMILES"])
 
     return interactions_data
 

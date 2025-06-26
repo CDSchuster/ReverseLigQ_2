@@ -3,7 +3,27 @@ import torch
 import pandas as pd
 
 
-data = pd.read_csv("interactions_DB.csv")
+data = pd.read_csv("interactions_DB.csv", index_col = 0)
+
+print(data.shape)
+
+# Check for missing or empty values
+missing_pfam = data["pfam_id"].isna() | (data["pfam_id"] == "")
+missing_smiles = data["SMILES"].isna() | (data["SMILES"] == "")
+
+# Count how many rows were removed due to each column
+filtered_by_pfam = missing_pfam.sum()
+filtered_by_smiles = missing_smiles.sum()
+filtered_by_both = (missing_pfam & missing_smiles).sum()
+
+# Filter the DataFrame
+filtered_data = data[~(missing_pfam | missing_smiles)]
+
+# Output stats
+print(f"Rows filtered due to missing 'pfam_id': {filtered_by_pfam}")
+print(f"Rows filtered due to missing 'SMILES': {filtered_by_smiles}")
+print(f"Rows filtered due to missing both: {filtered_by_both}")
+print(f"Remaining rows: {len(filtered_data)}")
 
 smiles_set = list(set(data["SMILES"]))
 smiles_set = [smile for smile in smiles_set if type(smile)==str]

@@ -2,13 +2,16 @@ import random as rnd
 import pandas as pd
 from rdkit.Chem import Descriptors
 from rdkit.Chem.Scaffolds import MurckoScaffold
+from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
 from rdkit.DataStructs import BulkTanimotoSimilarity
 from rdkit import Chem
 
 
-def generate_properties_csv(df, id_col, smiles_col):
+def generate_struct_data(df, id_col, smiles_col):
     """Genera un archivo CSV con las propiedades físico-químicas de las moléculas en el diccionario."""
-    rows = []
+
+    rows, fingerprints, scaffolds = [], {}, {}
+    morgan_gen = GetMorganGenerator(radius=2, fpSize=2048)
     for index, row in df.iterrows():
         
         if index % 10000 == 0:
@@ -16,7 +19,15 @@ def generate_properties_csv(df, id_col, smiles_col):
         
         mol_id, smile = row[id_col], row[smiles_col]
         mol = Chem.MolFromSmiles(smile)
+        
         if mol:
+            
+            fingerprints[mol_id] = morgan_gen.GetFingerprint(mol)
+
+            scaffold = MurckoScaffold.GetScaffoldForMol(mol)
+            scaffold_smiles = Chem.MolToSmiles(scaffold)
+            scaffolds[smile] = scaffold_smiles
+
             properties = {
                 'compound_id': mol_id,
                 'smiles': smile,
@@ -32,39 +43,19 @@ def generate_properties_csv(df, id_col, smiles_col):
     properties_df = pd.DataFrame(rows)
     properties_df.set_index('compound_id', inplace=True)
     
-    return properties_df
+    return properties_df, fingerprints, scaffolds
 
 
-def get_ligand_scaffolds(smiles):
-    """Precalcula scaffolds para todos los ligandos en un diccionario de SMILES."""
-    scaffolds = {}
-    for smile in smiles:
-        mol = Chem.MolFromSmiles(smile)
-        if mol:
-            scaffold = MurckoScaffold.GetScaffoldForMol(mol)
-            scaffold_smiles = Chem.MolToSmiles(scaffold)
-            scaffolds[smile] = scaffold_smiles
-    return scaffolds
-
-
-def bemis_murcko_clustering(decoys, scaffolds):
+def bemis_murcko_clustering(smiles, scaffolds):
     """Aplica clustering de Bemis-Murcko para identificar estructuras únicas en los ligandos."""
     scaffold_dict = {}
-    for d in decoys:
-        scaffold_smiles = scaffolds[d]
+    for smile in smiles:
+        scaffold_smiles = scaffolds[smile]
         if scaffold_smiles not in scaffold_dict:
             scaffold_dict[scaffold_smiles] = []
-        scaffold_dict[scaffold_smiles].append(d)
+        scaffold_dict[scaffold_smiles].append(smile)
     clustered_ids = [ligands[0] for ligands in scaffold_dict.values()]  # Seleccionar un representante por clúster
     return clustered_ids
-
-
-def retrieve_ligand_properties(ligand_id, properties_df):
-    """Recupera las propiedades de un ligando desde la base de datos."""
-    if ligand_id in properties_df.index:
-        return properties_df.loc[ligand_id].to_dict()
-    else:
-        raise ValueError(f"Ligando {ligand_id} no encontrado en la base de datos.")
     
 
 def filter_ligands(properties_df, ligand_properties):
@@ -89,26 +80,26 @@ def calculate_similarity_filter(ligand_id, filtered_properties, fps, threshold=0
     return decoys
 
 
-def generate_decoys_from_properties(l, ligs_props, fps, scaffolds, threshold=0.4,max_decoys = 100):
+def generate_decoys_from_properties(ligand, pdb_props_df, chembl_props_df, fingerprints, scaffolds, threshold=0.4,max_decoys = 100):
     """Genera decoys para un ligando utilizando una base de datos de propiedades físico-químicas precalculadas."""
-    # Cargar base de datos
-    #random.seed(10)
-    l_prop = retrieve_ligand_properties(l,ligs_props)
-    pre_decoys = filter_ligands(ligs_props,l_prop)
-    decoys = calculate_similarity_filter(l, pre_decoys, fps, threshold)
-    final_decoys = bemis_murcko_clustering(decoys,scaffolds)
+    ligand_props = pdb_props_df[pdb_props_df.compound_id==ligand].iloc[0].to_dict()
+    pre_decoys = filter_ligands(chembl_props_df, ligand_props)
+    decoys = calculate_similarity_filter(ligand, pre_decoys, fingerprints, threshold)
+    final_decoys = bemis_murcko_clustering(decoys, scaffolds)
+
     if len(final_decoys) > max_decoys:
-        final_decoys = rnd.sample(final_decoys,max_decoys)
+        final_decoys = rnd.sample(final_decoys, max_decoys)
 
     return final_decoys
 
 
-chembl_data = pd.read_csv("~/Projects/ReverseLigQ_2/generate_decoys/chembl_smiles.csv")
-pdb_data = pd.read_csv("interactions_DB.csv")
-pdb_data = pdb_data[["ligand_id", "SMILES"]].drop_duplicates()
+interactions_DB = pd.read_csv("interactions_DB.csv")[["ligand_id", "SMILES", "pfam_id"]].drop_duplicates()
+pdb_props_df, pdb_fingerprints, pdb_scaffolds = generate_struct_data(interactions_DB[["ligand_id", "SMILES"]].drop_duplicates(), "ligand_id", "SMILES")
+interactions_DB = interactions_DB[interactions_DB.SMILES.isin(pdb_props_df.smiles.unique())]
+pfam_smiles_dict = interactions_DB.groupby('pfam_id')['SMILES'].apply(list).to_dict()
 
-pdb_data_properties = generate_properties_csv(pdb_data, "ligand_id", "SMILES")
-chembl_data_properties = generate_properties_csv(pdb_data, "ChEMBL_ID", "SMILES")
 
-pdb_data_properties.to_csv("pdb_data_properties.csv", index=True)
-chembl_data_properties.to_csv("chembl_data_properties.csv", index=True)
+clusters = {}
+for pfam_id, smiles_list in pfam_smiles_dict.items():
+    clustered_ligands = bemis_murcko_clustering(smiles_list, pdb_scaffolds)
+    clusters[pfam_id] = clustered_ligands

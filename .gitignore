@@ -9,7 +9,6 @@ estradiol_smile
 run_errors.log
 DB_gen_errors.log
 input_files
-encoding_testings/.ipynb_checkpoints/Untitled-checkpoint.ipynb
-run/.ipynb_checkpoints/chembert-checkpoint.py
 interactions_DB_small.csv
-encoding_testings/.ipynb_checkpoints/chemberta_tanimoto-checkpoint.ipynb
+chembl_data.csv
+**/.ipynb_checkpoints/**

@@ -1,6 +1,14 @@
+"""
+This module contains functions to compare molecular fingerprints using the Tanimoto coefficient,
+download Pfam HMM files, and run HMMER's hmmsearch command on protein sequences. It is designed to
+identify similar molecules based on their SMILES representation and to analyze protein sequences
+for specific Pfam domains.
+"""
+
 from rdkit import Chem
 from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
 import rdkit.DataStructs as DataStructs
+import logging
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
@@ -11,7 +19,10 @@ import subprocess
 import tempfile
 
 
-def compare_fingerprints(query_smile, threhsold=0.9):
+log = logging.getLogger("run")
+
+
+def compare_fingerprints(query_smile, threshold=0.9):
     """
     Takes a SMILE, compares its fingerprint to a database of molecules using the Tanimoto coefficient,
     and returns the most similar molecules.
@@ -32,6 +43,7 @@ def compare_fingerprints(query_smile, threhsold=0.9):
 
     # Load the database and filter unique SMILES
     db = pd.read_csv("full_DB.csv", index_col=0)
+    log.info(f"Loaded database with {len(db)} entries")
     unique_smiles = db['SMILES'].unique()
     
     morgan_gen = GetMorganGenerator(radius=2, fpSize=2048)
@@ -48,15 +60,17 @@ def compare_fingerprints(query_smile, threhsold=0.9):
             if mol != None:
                 target_fps[smile] = morgan_gen.GetFingerprint(mol)
 
+    log.info(f"Generated fingerprints for {len(target_fps)} unique SMILES")
     # Bulk Tanimoto similarity
     fps_list = list(target_fps.values())
     smiles_list = list(target_fps.keys())
     similarities = DataStructs.BulkTanimotoSimilarity(query_fp, fps_list)
 
     # Filter interactions_db based on Tanimoto similarity
-    filtered = {smile: sim for smile, sim in zip(smiles_list, similarities) if sim >= threhsold}
+    filtered = {smile: sim for smile, sim in zip(smiles_list, similarities) if sim >= threshold}
     matching_smiles = list(filtered.keys())
     filtered_db = db[db['SMILES'].isin(matching_smiles)]
+    log.info(f"Filtered database contains {len(filtered_db)} entries with Tanimoto similarity >= {threshold}")
     
     return filtered_db
 
@@ -79,7 +93,7 @@ def get_pfam_hmm(pfam_id):
     """
 
     url = f"https://www.ebi.ac.uk/interpro/wwwapi//entry/pfam/{pfam_id}?annotation=hmm"
-    print(f'Downloading {pfam_id} from {url}')
+    log.info(f'Downloading {pfam_id} from {url}')
     
     # Create a temporary directory to store the downloaded files
     temp_dir = tempfile.mkdtemp()
@@ -89,19 +103,22 @@ def get_pfam_hmm(pfam_id):
     # Download the HMM file
     response = requests.get(url)
     if response.status_code != 200:
-        raise Exception(f'Failed to download {pfam_id}: HTTP {response.status_code}')
+        log.warning(f'Failed to download {pfam_id}: HTTP {response.status_code}')
+        result = None
     
-    # Save the gzipped file and extract it
-    with open(gz_path, 'wb') as f:
-        f.write(response.content)
-    
-    # Extract the gzipped file
-    with gzip.open(gz_path, 'rb') as f_in:
-        with open(hmm_path, 'wb') as f_out:
-            shutil.copyfileobj(f_in, f_out)
-    os.remove(gz_path)  # remove the compressed file
+    else:
+        # Save the gzipped file and extract it
+        with open(gz_path, 'wb') as f:
+            f.write(response.content)
+        
+        # Extract the gzipped file
+        with gzip.open(gz_path, 'rb') as f_in:
+            with open(hmm_path, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        result = hmm_path, temp_dir
+        os.remove(gz_path)  # remove the compressed file
 
-    return hmm_path, temp_dir
+    return result
 
 
 def run_hmmsearch(hmm_file, fasta_file, output_file):
@@ -142,16 +159,21 @@ def hmmer_to_proteome(pfam_ids, fasta_file, output_dir):
     output_dir : str, optional
         The directory where the output files will be saved, by default 'hmmsearch_results'
     """
-
-    os.makedirs(output_dir, exist_ok=True)
+    
     for pfam_id in pfam_ids:
         if type(pfam_id) == str and "PF" in pfam_id:
-            hmm_path, temp_dir = get_pfam_hmm(pfam_id)
-            output_file = os.path.join(output_dir, f"{pfam_id}_hmmsearch.out")
-            run_hmmsearch(hmm_path, fasta_file, output_file)
+            log.info(f"Processing Pfam ID: {pfam_id}")
+            results = get_pfam_hmm(pfam_id)
+            if results != None:
+                hmm_path, temp_dir = results
+                output_file = os.path.join(output_dir, f"{pfam_id}_hmmsearch.out")
+                log.info(f"Running hmmsearch for {pfam_id}...")
+                run_hmmsearch(hmm_path, fasta_file, output_file)
+        else:
+            log.warning(f"Invalid Pfam ID: {pfam_id}. Skipping download.")
         
     
-def run_analysis(query_smile, fasta_file, threshold=0.9, output_dir="results"):
+def run_analysis(query_file, fasta_file, output_dir, threshold=0.9):
     """
     Takes a SMILE, compares its fingerprint to a database of molecules using the Tanimoto coefficient,
     and returns the most similar molecules. It then downloads the HMM files for the matching Pfam IDs
@@ -163,17 +185,17 @@ def run_analysis(query_smile, fasta_file, threshold=0.9, output_dir="results"):
         A SMILE string to be compared against the database
     fasta_file : str
         The path to the FASTA file containing protein sequences
+    output_dir : str
+        The directory where the output files will be saved, by default 'results'
     threshold : float, optional
         A threshold for the Tanimoto coefficient, by default 0.9
-    output_dir : str, optional
-        The directory where the output files will be saved, by default 'results'
     """
     
+    with open(query_file, "r") as f:
+        query_smile = f.read().strip()
+
     filtered_db = compare_fingerprints(query_smile, threshold)
     hmmer_to_proteome(set(filtered_db.pfam_id), fasta_file, output_dir)
     
     # Save the filtered database to a CSV file
     filtered_db.to_csv(f"{output_dir}/filtered_DB.csv", index=False)
-    
-
-run_analysis("CC12CCC3c4ccc(cc4CCC3C1CCC2O)O", "human_proteome.fasta", threshold=0.9)

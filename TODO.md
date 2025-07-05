@@ -10,8 +10,15 @@
 
 ## FUNCTIONALITY
 
-* Retry failed SMILE requests
-* Retry failed interactions request
+### DECOY GENERATION
+
+* Set filters to the scaffold clusters of PDB for when too few smiles or too many scaffolds
+* After clustering PDB smiles, filter property table and interaction table
+* Adjust code to find decoys for each final representative SMILE from PDB
+
+### DATABASE GENERATION
+
+* Why the unrecoverable ligand and pfam data does not cause trouble when creating the dataframes
 * Recover data failed to request by loading it from PDB files
 * Include Chembl data
 

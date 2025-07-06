@@ -8,7 +8,28 @@ from rdkit import Chem
 
 
 def generate_struct_data(df, id_col, smiles_col):
-    """Genera un archivo CSV con las propiedades físico-químicas de las moléculas en el diccionario."""
+    """For a given dataframe containing SMILES strings, this function generates molecular properties,
+    Morgan fingerprints, and Murcko scaffolds. It returns a dataframe with the properties and two
+    dictionaries: one for the fingerprints and another for the scaffolds.
+
+    Parameters
+    ----------
+    df : dataframe
+        It must contain the columns specified in id_col and smiles_col
+    id_col : str
+        The column name in df that contains the unique identifier for each molecule
+    smiles_col : str
+        The column name in df that contains the SMILES representation of each molecule
+
+    Returns
+    -------
+    properties_df : dataframe
+        A dataframe containing the molecular properties of each molecule, indexed by the unique identifier
+    fingerprints : dict
+        A dictionary where keys are the unique identifiers and values are the corresponding Morgan fingerprints
+    scaffolds : dict
+        A dictionary where keys are the SMILES strings and values are the corresponding Murcko scaffold SMILES
+    """
 
     rows, fingerprints, scaffolds = [], {}, {}
     morgan_gen = GetMorganGenerator(radius=2, fpSize=2048)
@@ -47,7 +68,21 @@ def generate_struct_data(df, id_col, smiles_col):
 
 
 def bemis_murcko_clustering(smiles, scaffolds):
-    """Aplica clustering de Bemis-Murcko para identificar estructuras únicas en los ligandos."""
+    """Clusters ligands based on their Murcko scaffolds, returning a list of representative ligands for each scaffold
+
+    Parameters
+    ----------
+    smiles : list
+        A list of SMILES strings representing the ligands to be clustered
+    scaffolds : dict
+        A dictionary where keys are SMILES strings and values are their corresponding Murcko scaffold SMILES
+
+    Returns
+    -------
+    clustered_ids : list
+        A list of unique identifiers for the ligands, where each identifier corresponds to a unique scaffold
+    """
+
     scaffold_dict = {}
     for smile in smiles:
         scaffold_smiles = scaffolds[smile]
@@ -59,7 +94,27 @@ def bemis_murcko_clustering(smiles, scaffolds):
     
 
 def filter_ligands(properties_df, ligand_properties):
-    """Filtra ligandos aptos según los criterios de DUD-E, basado en las propiedades de un ligando."""
+    """Filters a dataframe of molecular properties to find ligands that are
+    similar to a given ligand based on several physicochemical properties.
+
+    Parameters
+    ----------
+    properties_df : dataframe
+        A dataframe containing the properties of various ligands, including molecular weight (mw),
+        logP, number of rotatable bonds (rot_bonds), number of hydrogen bond acceptors (h_acceptors),
+        number of hydrogen bond donors (h_donors), and charge.
+        Each row should represent a different ligand with these properties.
+    ligand_properties : dict
+        A dictionary containing the properties of a specific ligand, with keys corresponding to the same
+        properties as in properties_df (mw, logP, rot_bonds, h_acceptors, h_donors, charge).
+
+    Returns
+    -------
+    filtered_df : dataframe
+        A filtered dataframe containing only those ligands from properties_df that are similar to the
+        specified ligand based on the DUD-E criteria for similarity
+    """
+
     filtered_df = properties_df[(properties_df['mw'].between(ligand_properties['mw'] - 25, ligand_properties['mw'] + 25)) &
                                 (properties_df['logP'].between(ligand_properties['logP'] - 1, ligand_properties['logP'] + 1)) &
                                 (properties_df['rot_bonds'].between(ligand_properties['rot_bonds'] - 2, ligand_properties['rot_bonds'] + 2)) &
@@ -70,7 +125,25 @@ def filter_ligands(properties_df, ligand_properties):
 
 
 def calculate_similarity_filter(ligand_id, filtered_properties, fps, threshold=0.5):
-    """Calcula decoys topológicamente diferentes en un subconjunto filtrado de ligandos."""
+    """Calculates the Tanimoto similarity between a given ligand's fingerprint and the fingerprints of a set of filtered ligands.
+
+    Parameters
+    ----------
+    ligand_id : str
+        The unique identifier for the ligand whose fingerprint will be used for similarity calculations.
+    filtered_properties : dataframe
+        A dataframe containing the properties of ligands that have been filtered based on physicochemical criteria.
+    fps : dict
+        A dictionary where keys are unique identifiers for ligands and values are their corresponding fingerprints.
+    threshold : float, optional
+        The maximum Tanimoto threshold to determine whether to keep the potential decoy or not, by default 0.5
+
+    Returns
+    -------
+    decoys : list
+        A list of unique identifiers for ligands that are considered potential decoys based on the Tanimoto similarity threshold.
+    """
+
     ligand_fp = fps[ligand_id]
     pre_decoys = list(filtered_properties.index)
     pre_decoys_fps = [fps[c] for c in pre_decoys]

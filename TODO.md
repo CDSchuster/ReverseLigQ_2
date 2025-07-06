@@ -12,7 +12,6 @@
 
 ### DECOY GENERATION
 
-* Set filters to the scaffold clusters of PDB for when too few smiles or too many scaffolds
 * After clustering PDB smiles, filter property table and interaction table
 * Adjust code to find decoys for each final representative SMILE from PDB
 

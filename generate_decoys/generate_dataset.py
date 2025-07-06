@@ -93,13 +93,26 @@ def generate_decoys_from_properties(ligand, pdb_props_df, chembl_props_df, finge
     return final_decoys
 
 
-interactions_DB = pd.read_csv("interactions_DB.csv")[["ligand_id", "SMILES", "pfam_id"]].drop_duplicates()
-pdb_props_df, pdb_fingerprints, pdb_scaffolds = generate_struct_data(interactions_DB[["ligand_id", "SMILES"]].drop_duplicates(), "ligand_id", "SMILES")
-interactions_DB = interactions_DB[interactions_DB.SMILES.isin(pdb_props_df.smiles.unique())]
-pfam_smiles_dict = interactions_DB.groupby('pfam_id')['SMILES'].apply(list).to_dict()
+def generate_actives_dataset(pdb_data, min_actives=5, max_actives=100):
+
+    interactions_DB = pd.read_csv(pdb_data)[["ligand_id", "SMILES", "pfam_id"]].drop_duplicates()
+    pdb_props_df, pdb_fingerprints, pdb_scaffolds = generate_struct_data(interactions_DB[["ligand_id", "SMILES"]].drop_duplicates(), "ligand_id", "SMILES")
+
+    interactions_DB = interactions_DB[interactions_DB.SMILES.isin(pdb_props_df.smiles.unique())]
+    pfam_smiles_dict = interactions_DB.groupby('pfam_id')['SMILES'].apply(list).to_dict()
+
+    clusters = {}
+    for pfam_id, smiles_list in pfam_smiles_dict.items():
+        clustered_ligands = bemis_murcko_clustering(smiles_list, pdb_scaffolds)
+        if len(clustered_ligands) > min_actives and len(clustered_ligands) < max_actives:
+            clusters[pfam_id] = clustered_ligands
+
+    all_actives = {ligand for ligand_cluster in clusters.values() for ligand in ligand_cluster}
+    pdb_props_df = pdb_props_df[pdb_props_df.smiles.isin(all_actives)]
+    interactions_DB = interactions_DB[interactions_DB.SMILES.isin(all_actives)]
+    
+    actives_data = {"properties":pdb_props_df, "interactions":interactions_DB, "fingerprints":pdb_fingerprints}
+    return actives_data
 
 
-clusters = {}
-for pfam_id, smiles_list in pfam_smiles_dict.items():
-    clustered_ligands = bemis_murcko_clustering(smiles_list, pdb_scaffolds)
-    clusters[pfam_id] = clustered_ligands
+generate_actives_dataset("interactions_DB.csv", min_actives=5, max_actives=100)

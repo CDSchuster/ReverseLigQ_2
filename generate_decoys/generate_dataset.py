@@ -194,15 +194,17 @@ def generate_actives_dataset(pdb_data, min_actives=5, max_actives=100):
 
 def generate_data():
 
-    actives_data = generate_actives_dataset("data/pdb_interactions.csv")
+    actives_data = generate_actives_dataset("interactions_DB.csv")
     print("Actives data generated")
-    chembl_smiles = pd.read_csv("chembl_smiles.csv")["smiles"].drop_duplicates().tolist()
+    
+    chembl_smiles = pd.read_csv("generate_decoys/chembl_smiles.csv")["smiles"].drop_duplicates().tolist()
     all_actives = {ligand for ligand_cluster in actives_data["clusters"].values() for ligand in ligand_cluster}
     chembl_props_df, chembl_fingerprints, chembl_scaffolds = generate_struct_data(chembl_smiles, "ChEMBL_ID", "SMILES")
     print("ChEMBL data generated")
     
     decoy_dataset = {}
-    counter, actives_num = 0, len(all_actives)// 10
+    counter, actives_num = 0, len(all_actives) // 10
+    
     for ligand in all_actives:
         
         c += 1

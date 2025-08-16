@@ -5,6 +5,7 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
 from rdkit.DataStructs import BulkTanimotoSimilarity
 from rdkit import Chem
+import pickle
 
 
 def generate_struct_data(df, id_col, smiles_col):
@@ -184,8 +185,34 @@ def generate_actives_dataset(pdb_data, min_actives=5, max_actives=100):
     pdb_props_df = pdb_props_df[pdb_props_df.smiles.isin(all_actives)]
     interactions_DB = interactions_DB[interactions_DB.SMILES.isin(all_actives)]
     
-    actives_data = {"properties":pdb_props_df, "interactions":interactions_DB, "fingerprints":pdb_fingerprints}
+    actives_data = {"properties":pdb_props_df, "interactions":interactions_DB,
+                    "fingerprints":pdb_fingerprints, "Pfam_clusters":clusters,
+                    "scaffolds":pdb_scaffolds}
+    
     return actives_data
 
 
-generate_actives_dataset("interactions_DB.csv", min_actives=5, max_actives=100)
+def generate_data():
+
+    actives_data = generate_actives_dataset("data/pdb_interactions.csv")
+    print("Actives data generated")
+    chembl_smiles = pd.read_csv("chembl_smiles.csv")["smiles"].drop_duplicates().tolist()
+    all_actives = {ligand for ligand_cluster in actives_data["clusters"].values() for ligand in ligand_cluster}
+    chembl_props_df, chembl_fingerprints, chembl_scaffolds = generate_struct_data(chembl_smiles, "ChEMBL_ID", "SMILES")
+    print("ChEMBL data generated")
+    
+    decoy_dataset = {}
+    counter, actives_num = 0, len(all_actives)// 10
+    for ligand in all_actives:
+        
+        c += 1
+        if counter % actives_num == 0:
+            print(f"Generating decoys for {counter}/{len(all_actives)} ligands")
+
+        ligand_decoys = generate_decoys_from_properties(ligand, actives_data["properties"], chembl_props_df, chembl_fingerprints, chembl_scaffolds)
+        decoy_dataset[ligand] = ligand_decoys
+    
+    print("Decoys generated")
+    pickle.dump(decoy_dataset, open("decoys.pkl", "wb"))
+    pickle.dump(actives_data["clusters"], open("actives_clusters.pkl", "wb"))
+

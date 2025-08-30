@@ -15,41 +15,43 @@ def generate_struct_data(df, id_col, smiles_col):
 
     Parameters
     ----------
-    df : dataframe
-        It must contain the columns specified in id_col and smiles_col
+    df : pandas.DataFrame
+        Must contain the columns specified in id_col and smiles_col.
     id_col : str
-        The column name in df that contains the unique identifier for each molecule
+        Column name in df that contains the unique identifier for each molecule.
     smiles_col : str
-        The column name in df that contains the SMILES representation of each molecule
+        Column name in df that contains the SMILES representation of each molecule.
 
     Returns
     -------
-    properties_df : dataframe
-        A dataframe containing the molecular properties of each molecule, indexed by the unique identifier
+    properties_df : pandas.DataFrame
+        Dataframe containing the molecular properties of each molecule, indexed by the unique identifier.
     fingerprints : dict
-        A dictionary where keys are the unique identifiers and values are the corresponding Morgan fingerprints
+        Dictionary where keys are the unique identifiers and values are the corresponding Morgan fingerprints.
     scaffolds : dict
-        A dictionary where keys are the SMILES strings and values are the corresponding Murcko scaffold SMILES
+        Dictionary where keys are the SMILES strings and values are the corresponding Murcko scaffold SMILES.
     """
 
     rows, fingerprints, scaffolds = [], {}, {}
-    morgan_gen = GetMorganGenerator(radius=2, fpSize=2048)
+    morgan_gen = GetMorganGenerator(radius=2, fpSize=2048)  # Morgan fingerprint generator
+
     for index, row in df.iterrows():
-        
-        if index % 10000 == 0:
-            print(round(index/len(df)*100, 2), "%")
-        
+        if index % 10000 == 0:  # Progress log for large datasets
+            print(round(index / len(df) * 100, 2), "%")
+
         mol_id, smile = row[id_col], row[smiles_col]
         mol = Chem.MolFromSmiles(smile)
-        
-        if mol:
-            
+
+        if mol:  # Only process valid molecules
+            # Generate Morgan fingerprint
             fingerprints[mol_id] = morgan_gen.GetFingerprint(mol)
 
+            # Generate Bemis-Murcko scaffold
             scaffold = MurckoScaffold.GetScaffoldForMol(mol)
             scaffold_smiles = Chem.MolToSmiles(scaffold)
             scaffolds[smile] = scaffold_smiles
 
+            # Calculate physicochemical properties
             properties = {
                 'compound_id': mol_id,
                 'smiles': smile,
@@ -61,27 +63,27 @@ def generate_struct_data(df, id_col, smiles_col):
                 'charge': Chem.rdmolops.GetFormalCharge(mol)
             }
             rows.append(properties)
-    
+
     properties_df = pd.DataFrame(rows)
-    print(len(properties_df)/len(df), "of molecules could be processed")
-    
+    print(len(properties_df) / len(df), "of molecules could be processed")
+
     return properties_df, fingerprints, scaffolds
 
 
 def bemis_murcko_clustering(smiles, scaffolds):
-    """Clusters ligands based on their Murcko scaffolds, returning a list of representative ligands for each scaffold
+    """Clusters ligands based on their Murcko scaffolds, returning one representative ligand per scaffold.
 
     Parameters
     ----------
     smiles : list
-        A list of SMILES strings representing the ligands to be clustered
+        List of SMILES strings representing the ligands to be clustered.
     scaffolds : dict
-        A dictionary where keys are SMILES strings and values are their corresponding Murcko scaffold SMILES
+        Dictionary where keys are SMILES strings and values are their corresponding Murcko scaffold SMILES.
 
     Returns
     -------
     clustered_ids : list
-        A list of unique identifiers for the ligands, where each identifier corresponds to a unique scaffold
+        List of SMILES strings, each one being a representative ligand for a unique scaffold.
     """
 
     scaffold_dict = {}
@@ -90,30 +92,34 @@ def bemis_murcko_clustering(smiles, scaffolds):
         if scaffold_smiles not in scaffold_dict:
             scaffold_dict[scaffold_smiles] = []
         scaffold_dict[scaffold_smiles].append(smile)
-    clustered_ids = [ligands[0] for ligands in scaffold_dict.values()]  # Seleccionar un representante por clúster
+
+    # Select the first ligand in each scaffold cluster as representative
+    clustered_ids = [ligands[0] for ligands in scaffold_dict.values()]
     return clustered_ids
-    
+
 
 def filter_ligands(properties_df, ligand_properties):
-    """Filters a dataframe of molecular properties to find ligands that are
-    similar to a given ligand based on several physicochemical properties.
+    """Filters ligands that are similar to a reference ligand based on physicochemical properties.
+
+    The filtering follows the DUD-E criteria:
+    - Molecular weight ±25
+    - logP ±1
+    - Rotatable bonds ±2
+    - H-bond acceptors ±1
+    - H-bond donors ±1
+    - Same formal charge
 
     Parameters
     ----------
-    properties_df : dataframe
-        A dataframe containing the properties of various ligands, including molecular weight (mw),
-        logP, number of rotatable bonds (rot_bonds), number of hydrogen bond acceptors (h_acceptors),
-        number of hydrogen bond donors (h_donors), and charge.
-        Each row should represent a different ligand with these properties.
+    properties_df : pandas.DataFrame
+        Dataframe with ligand properties (mw, logP, rot_bonds, h_acceptors, h_donors, charge).
     ligand_properties : dict
-        A dictionary containing the properties of a specific ligand, with keys corresponding to the same
-        properties as in properties_df (mw, logP, rot_bonds, h_acceptors, h_donors, charge).
+        Dictionary containing the reference ligand's properties.
 
     Returns
     -------
-    filtered_df : dataframe
-        A filtered dataframe containing only those ligands from properties_df that are similar to the
-        specified ligand based on the DUD-E criteria for similarity
+    filtered_df : pandas.DataFrame
+        Subset of ligands from properties_df that match the criteria.
     """
 
     filtered_df = properties_df[(properties_df['mw'].between(ligand_properties['mw'] - 25, ligand_properties['mw'] + 25)) &
@@ -126,44 +132,78 @@ def filter_ligands(properties_df, ligand_properties):
 
 
 def calculate_similarity_filter(ligand_id, filtered_properties, fps, threshold=0.5):
-    """Calculates the Tanimoto similarity between a given ligand's fingerprint and the fingerprints of a set of filtered ligands.
+    """Filters ligands based on Tanimoto similarity against a reference ligand.
 
     Parameters
     ----------
     ligand_id : str
-        The unique identifier for the ligand whose fingerprint will be used for similarity calculations.
-    filtered_properties : dataframe
-        A dataframe containing the properties of ligands that have been filtered based on physicochemical criteria.
+        Unique identifier for the ligand whose fingerprint is used for similarity.
+    filtered_properties : pandas.DataFrame
+        Subset of ligands already filtered by physicochemical properties.
     fps : dict
-        A dictionary where keys are unique identifiers for ligands and values are their corresponding fingerprints.
-    threshold : float, optional
-        The maximum Tanimoto threshold to determine whether to keep the potential decoy or not, by default 0.5
+        Dictionary mapping ligand IDs to their Morgan fingerprints.
+    threshold : float, optional (default=0.5)
+        Maximum allowed Tanimoto similarity. Ligands with similarity < threshold are kept.
 
     Returns
     -------
     decoys : list
-        A list of unique identifiers for ligands that are considered potential decoys based on the Tanimoto similarity threshold.
+        List of ligand IDs considered potential decoys.
     """
 
     ligand_fp = fps[ligand_id]
     pre_decoys = list(filtered_properties.index)
     pre_decoys_fps = [fps[c] for c in pre_decoys]
-    tanimoto_pre_decoys = BulkTanimotoSimilarity(ligand_fp,pre_decoys_fps)
 
-    decoys = [pre_decoys[i] for i in range(len(pre_decoys_fps)) if tanimoto_pre_decoys[i]<threshold]
+    # Compute Tanimoto similarity between reference and candidates
+    tanimoto_pre_decoys = BulkTanimotoSimilarity(ligand_fp, pre_decoys_fps)
+
+    # Keep ligands below the similarity threshold
+    decoys = [pre_decoys[i] for i in range(len(pre_decoys_fps)) if tanimoto_pre_decoys[i] < threshold]
     return decoys
 
 
-def generate_decoys_from_properties(ligand, pdb_props_df, chembl_props_df, fingerprints, scaffolds, threshold=0.4,max_decoys = 100):
-    """Genera decoys para un ligando utilizando una base de datos de propiedades físico-químicas precalculadas."""
-    
+def generate_decoys_from_properties(ligand, pdb_props_df, chembl_props_df, fingerprints, scaffolds, threshold=0.4, max_decoys=100):
+    """Generates decoys for a ligand using precomputed property datasets.
+
+    Parameters
+    ----------
+    ligand : str
+        Ligand identifier present in pdb_props_df.
+    pdb_props_df : pandas.DataFrame
+        Properties of ligands derived from PDB data.
+    chembl_props_df : pandas.DataFrame
+        Properties of ligands derived from ChEMBL data.
+    fingerprints : dict
+        Dictionary mapping ligand IDs to their Morgan fingerprints.
+    scaffolds : dict
+        Dictionary mapping SMILES strings to their Murcko scaffolds.
+    threshold : float, optional (default=0.4)
+        Maximum allowed Tanimoto similarity.
+    max_decoys : int, optional (default=100)
+        Maximum number of decoys to return.
+
+    Returns
+    -------
+    final_decoys : list or None
+        List of representative decoys for the ligand, or None if no decoys could be generated.
+    """
+
     final_decoys = None
     if ligand in pdb_props_df.compound_id.values:
-        ligand_props = pdb_props_df[pdb_props_df.compound_id==ligand].iloc[0].to_dict()
+        # Get ligand properties
+        ligand_props = pdb_props_df[pdb_props_df.compound_id == ligand].iloc[0].to_dict()
+
+        # Filter ligands by properties
         pre_decoys = filter_ligands(chembl_props_df, ligand_props)
+
+        # Further filter by fingerprint similarity
         decoys = calculate_similarity_filter(ligand, pre_decoys, fingerprints, threshold)
+
+        # Cluster remaining ligands by scaffold
         final_decoys = bemis_murcko_clustering(decoys, scaffolds)
 
+        # Limit number of decoys
         if len(final_decoys) > max_decoys:
             final_decoys = rnd.sample(final_decoys, max_decoys)
 
@@ -171,45 +211,94 @@ def generate_decoys_from_properties(ligand, pdb_props_df, chembl_props_df, finge
 
 
 def generate_actives_dataset(pdb_data, min_actives=5, max_actives=100):
+    """Generates active ligand clusters from PDB-derived data.
 
+    Parameters
+    ----------
+    pdb_data : str
+        Path to CSV file containing ligand_id, SMILES, and pfam_id.
+    min_actives : int, optional (default=5)
+        Minimum number of active ligands required for a Pfam cluster.
+    max_actives : int, optional (default=100)
+        Maximum number of active ligands allowed for a Pfam cluster.
+
+    Returns
+    -------
+    actives_data : dict
+        Dictionary containing:
+        - properties: DataFrame with ligand properties
+        - interactions: DataFrame with ligand-Pfam mappings
+        - fingerprints: dict of ligand fingerprints
+        - Pfam_clusters: dict of Pfam → list of ligand SMILES (clustered)
+        - scaffolds: dict of SMILES → scaffold SMILES
+    """
+
+    # Load interaction data
     interactions_DB = pd.read_csv(pdb_data)[["ligand_id", "SMILES", "pfam_id"]].drop_duplicates()
-    pdb_props_df, pdb_fingerprints, pdb_scaffolds = generate_struct_data(interactions_DB[["ligand_id", "SMILES"]].drop_duplicates(), "ligand_id", "SMILES")
 
+    # Compute ligand properties and fingerprints
+    pdb_props_df, pdb_fingerprints, pdb_scaffolds = generate_struct_data(
+        interactions_DB[["ligand_id", "SMILES"]].drop_duplicates(), "ligand_id", "SMILES"
+    )
+
+    # Keep only valid SMILES
     interactions_DB = interactions_DB[interactions_DB.SMILES.isin(pdb_props_df.smiles.unique())]
+
+    # Group ligands by Pfam
     pfam_smiles_dict = interactions_DB.groupby('pfam_id')['SMILES'].apply(list).to_dict()
 
+    # Scaffold clustering per Pfam
     clusters = {}
     for pfam_id, smiles_list in pfam_smiles_dict.items():
         clustered_ligands = bemis_murcko_clustering(smiles_list, pdb_scaffolds)
         if len(clustered_ligands) > min_actives and len(clustered_ligands) < max_actives:
             clusters[pfam_id] = clustered_ligands
 
+    # Keep only ligands in valid clusters
     all_actives = {ligand for ligand_cluster in clusters.values() for ligand in ligand_cluster}
     pdb_props_df = pdb_props_df[pdb_props_df.smiles.isin(all_actives)]
     interactions_DB = interactions_DB[interactions_DB.SMILES.isin(all_actives)]
-    
-    actives_data = {"properties":pdb_props_df, "interactions":interactions_DB,
-                    "fingerprints":pdb_fingerprints, "Pfam_clusters":clusters,
-                    "scaffolds":pdb_scaffolds}
-    
+
+    actives_data = {
+        "properties": pdb_props_df,
+        "interactions": interactions_DB,
+        "fingerprints": pdb_fingerprints,
+        "Pfam_clusters": clusters,
+        "scaffolds": pdb_scaffolds
+    }
+
     return actives_data
 
 
 def generate_data():
+    """Main pipeline to generate actives and decoys datasets.
 
+    Steps:
+    1. Generate active clusters from PDB data.
+    2. Generate ChEMBL ligand properties.
+    3. Generate decoys for each active ligand.
+    4. Save datasets as pickle files.
+
+    Returns
+    -------
+    None
+    """
+
+    # Step 1: Active ligands
     actives_data = generate_actives_dataset("small_interactions_DB.csv")
     print("Actives data generated")
-    
+
+    # Step 2: ChEMBL ligands
     chembl_smiles = pd.read_csv("small_chembl.csv").drop_duplicates()
     all_actives = {ligand for ligand_cluster in actives_data["Pfam_clusters"].values() for ligand in ligand_cluster}
     chembl_props_df, chembl_fingerprints, chembl_scaffolds = generate_struct_data(chembl_smiles, "ChEMBL_ID", "SMILES")
     print("ChEMBL data generated")
-    
+
+    # Step 3: Generate decoys
     decoy_dataset = {}
     counter, actives_num = 0, len(all_actives) // 10
-    
+
     for ligand in all_actives:
-        
         counter += 1
         if counter % actives_num == 0:
             print(f"Generating decoys for {counter}/{len(all_actives)} ligands")
@@ -217,9 +306,9 @@ def generate_data():
         ligand_decoys = generate_decoys_from_properties(ligand, actives_data["properties"], chembl_props_df, chembl_fingerprints, chembl_scaffolds)
         if ligand_decoys:
             decoy_dataset[ligand] = ligand_decoys
-    
+
     print("Decoys generated")
+
+    # Step 4: Save datasets
     pickle.dump(decoy_dataset, open("decoys.pkl", "wb"))
     pickle.dump(actives_data["Pfam_clusters"], open("actives_clusters.pkl", "wb"))
-
-generate_data()

@@ -63,7 +63,7 @@ def generate_struct_data(df, id_col, smiles_col):
             rows.append(properties)
     
     properties_df = pd.DataFrame(rows)
-    properties_df.set_index('compound_id', inplace=True)
+    print(len(properties_df)/len(df), "of molecules could be processed")
     
     return properties_df, fingerprints, scaffolds
 
@@ -156,13 +156,16 @@ def calculate_similarity_filter(ligand_id, filtered_properties, fps, threshold=0
 
 def generate_decoys_from_properties(ligand, pdb_props_df, chembl_props_df, fingerprints, scaffolds, threshold=0.4,max_decoys = 100):
     """Genera decoys para un ligando utilizando una base de datos de propiedades físico-químicas precalculadas."""
-    ligand_props = pdb_props_df[pdb_props_df.compound_id==ligand].iloc[0].to_dict()
-    pre_decoys = filter_ligands(chembl_props_df, ligand_props)
-    decoys = calculate_similarity_filter(ligand, pre_decoys, fingerprints, threshold)
-    final_decoys = bemis_murcko_clustering(decoys, scaffolds)
+    
+    final_decoys = None
+    if ligand in pdb_props_df.compound_id.values:
+        ligand_props = pdb_props_df[pdb_props_df.compound_id==ligand].iloc[0].to_dict()
+        pre_decoys = filter_ligands(chembl_props_df, ligand_props)
+        decoys = calculate_similarity_filter(ligand, pre_decoys, fingerprints, threshold)
+        final_decoys = bemis_murcko_clustering(decoys, scaffolds)
 
-    if len(final_decoys) > max_decoys:
-        final_decoys = rnd.sample(final_decoys, max_decoys)
+        if len(final_decoys) > max_decoys:
+            final_decoys = rnd.sample(final_decoys, max_decoys)
 
     return final_decoys
 
@@ -194,11 +197,11 @@ def generate_actives_dataset(pdb_data, min_actives=5, max_actives=100):
 
 def generate_data():
 
-    actives_data = generate_actives_dataset("interactions_DB.csv")
+    actives_data = generate_actives_dataset("small_interactions_DB.csv")
     print("Actives data generated")
     
-    chembl_smiles = pd.read_csv("generate_decoys/chembl_smiles.csv")["smiles"].drop_duplicates().tolist()
-    all_actives = {ligand for ligand_cluster in actives_data["clusters"].values() for ligand in ligand_cluster}
+    chembl_smiles = pd.read_csv("small_chembl.csv").drop_duplicates()
+    all_actives = {ligand for ligand_cluster in actives_data["Pfam_clusters"].values() for ligand in ligand_cluster}
     chembl_props_df, chembl_fingerprints, chembl_scaffolds = generate_struct_data(chembl_smiles, "ChEMBL_ID", "SMILES")
     print("ChEMBL data generated")
     
@@ -207,14 +210,16 @@ def generate_data():
     
     for ligand in all_actives:
         
-        c += 1
+        counter += 1
         if counter % actives_num == 0:
             print(f"Generating decoys for {counter}/{len(all_actives)} ligands")
 
         ligand_decoys = generate_decoys_from_properties(ligand, actives_data["properties"], chembl_props_df, chembl_fingerprints, chembl_scaffolds)
-        decoy_dataset[ligand] = ligand_decoys
+        if ligand_decoys:
+            decoy_dataset[ligand] = ligand_decoys
     
     print("Decoys generated")
     pickle.dump(decoy_dataset, open("decoys.pkl", "wb"))
-    pickle.dump(actives_data["clusters"], open("actives_clusters.pkl", "wb"))
+    pickle.dump(actives_data["Pfam_clusters"], open("actives_clusters.pkl", "wb"))
 
+generate_data()

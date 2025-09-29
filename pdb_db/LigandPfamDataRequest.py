@@ -16,9 +16,6 @@ from rdkit import Chem
 
 log = logging.getLogger("generateDB_log")
 
-# Inline comments added below. I did NOT change any docstrings or existing code —
-# only added explanatory comments prefixed with '#' throughout the file.
-
 
 def get_pdb_ids():
     """Retrieves PDB IDs for a specific query several batches

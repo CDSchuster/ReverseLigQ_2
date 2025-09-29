@@ -1,15 +1,17 @@
 """
 This module contains functions to request PDB IDs that are bound to molecules,
-request their ligands' data (SMILEs included) and the Pfam domains in those PDBs
+request their ligands' data (SMILES included), and the Pfam domains in those
+PDBs.
 """
 
-import requests
-import concurrent.futures
 import os
-from rdkit import Chem
 import json
-import pandas as pd
 import logging
+import concurrent.futures
+
+import requests
+import pandas as pd
+from rdkit import Chem
 
 
 log = logging.getLogger("generateDB_log")
@@ -24,35 +26,42 @@ def get_pdb_ids():
         all the PDB IDs that contain some bound molecule
     """
 
-    # Load query from file
+    # Open the JSON file that contains the RCSB search query template
     with open("generate_db/query_pdb.json", "r") as file:
         query_template = json.load(file)
 
+    # Base URL for RCSB search API and headers for JSON body
     url = "https://search.rcsb.org/rcsbsearch/v2/query"
     headers = {"Content-Type": "application/json"}
-    
+
     all_results, found_results = [], True
     start = 0
-    
+
+    # Loop over paginated results until no more are returned
     while found_results:
-        # We set the batch-size for every iteration of requests
+        # Update pagination fields in the query template
         query_template["request_options"]["paginate"]["start"] = start
         query_template["request_options"]["paginate"]["rows"] = 10000
 
+        # Send POST request with the query
         response = requests.post(url, json=query_template, headers=headers)
 
         if response.status_code == 200:
             data = response.json()
-            # Add the requested data to that which we have until there is no more to request
+            # If the result_set key exists and is non-empty, extend results
             if "result_set" in data and data["result_set"]:
                 all_results.extend(data["result_set"])
+                # Move to the next page offset
                 start += 10000
             else:
-                found_results = False  # No more results to fetch
+                # No more results to fetch
+                found_results = False
         else:
-            print(f"Error: {response.status_code}, {response.text}")
+            # Log non-200 responses for debugging / audit
+            log.error(f"Error: {response.status_code}, {response.text}")
             found_results = False
-    
+
+    # Extract 'identifier' field from each result entry
     all_ids = [pdb["identifier"] for pdb in all_results]
     return all_ids
 
@@ -74,31 +83,34 @@ def fetch_url(pdb_id, url):
     """
 
     attempts = 0
-    # In case we encounter one of the following request errors, we try again up to 5 times
+    # Errors considered transient / worth retrying
     errors_list = ["HTTPSConnectionPool", "500", "503", "504"]
-    
+
+    # Try up to 5 times for transient errors
     while attempts < 5:
-
         try:
+            # Perform GET request with a 60s timeout
             response = requests.get(url, timeout=60)
-            response.raise_for_status()  # Ensure we catch HTTP errors
-            # In case of success, we store pdb_id, url and response in json format
-            results = pdb_id, url, response.json()
-            attempts = 5 # To break the while loop
-
+            # Raise an HTTPError for bad status codes
+            response.raise_for_status()
+            # On success, return parsed JSON
+            results = (pdb_id, url, response.json())
+            attempts = 5
         except requests.RequestException as e:
-            # We save the error in place of the response, and if the error is in the errors_list, we try again
-            results =  pdb_id, url, str(e)
-            if any(err in str(e) for err in errors_list): attempts += 1 
+            # Save error message for logging/inspection
+            results = (pdb_id, url, str(e))
+            # If error message matches known transient errors, retry
+            if any(err in str(e) for err in errors_list):
+                attempts += 1
             else:
+                # For non-retryable errors, stop retrying and log
                 attempts = 5
                 log.error(e)
-                
-            # Save the error if it failed 5 times but it is recoverable
+            # Mark a fail type so caller can reattempt later if needed
             if any(err in str(e) for err in errors_list):
-                failtype = "pfam_fail" if ("pfam" in url) else "ligand_fail"
-                results = pdb_id, url, failtype
-                
+                failtype = "pfam_fail" if "pfam" in url else "ligand_fail"
+                results = (pdb_id, url, failtype)
+
     return results
 
 
@@ -114,9 +126,7 @@ def parallelize_pfam_ligand_request(pdb_ids):
     Returns
     -------
     results_dict : dict
-        
         A dictionary containing the data for every PDB ID and every URL with the following keys:
-
             - pdb_id: The PDB ID.
             - Pfam_url: The Pfam data retrieved for the PDB ID
             - ligand_url: the ligand data retrieved for the PDB ID
@@ -124,34 +134,49 @@ def parallelize_pfam_ligand_request(pdb_ids):
     fails_dict : dict
         A dictionary containing the errors for Pfam data and ligand data requests
     """
-    
-    URLs = ["https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_excluding_branched/{pdb_id}",
-            "https://www.ebi.ac.uk/pdbe/graph-api/mappings/pfam/{pdb_id}"]
 
-    # We create the tasks to distribute by parallelization
-    tasks = [(pdb_id, url.format(pdb_id=pdb_id)) for pdb_id in pdb_ids for url in URLs]
+    # Two endpoints: ligand info and Pfam mappings
+    urls = [
+        "https://www.ebi.ac.uk/pdbe/graph-api/pdb/bound_excluding_branched/{pdb_id}",
+        "https://www.ebi.ac.uk/pdbe/graph-api/mappings/pfam/{pdb_id}",
+    ]
 
-    # Run all requests in parallel
+    # Create (pdb_id, url) task tuples for each combination
+    tasks = [(pdb_id, url.format(pdb_id=pdb_id))
+             for pdb_id in pdb_ids for url in urls]
+
     results_dict = {}
     all_ligand_fails, all_pfam_fails = [], []
 
+    # Use threads for IO-bound network calls; max_workers tuned high for concurrency
     with concurrent.futures.ThreadPoolExecutor(max_workers=500) as executor:
+        # Map fetch_url across all tasks and collect results
         results = tuple(executor.map(lambda args: fetch_url(*args), tasks))
-        
-        # Store results in a structured dictionary
+
+        # Iterate over results and store them appropriately
         for pdb_id, url, data in results:
-            if data == "pfam_fail": all_pfam_fails.append(pdb_id)
-            elif data == "ligand_fail": all_ligand_fails.append(pdb_id)
+            if data == "pfam_fail":
+                # Record PDB IDs whose Pfam request failed
+                all_pfam_fails.append(pdb_id)
+            elif data == "ligand_fail":
+                # Record PDB IDs whose ligand request failed
+                all_ligand_fails.append(pdb_id)
             else:
+                # Store successful responses in results_dict keyed by pdb_id
                 if pdb_id not in results_dict:
                     results_dict[pdb_id] = {}
-                if "pfam" in url and type(data)==dict:
-                    results_dict[pdb_id]["Pfam_url"] = data[pdb_id.lower()]["Pfam"]
-                    
-                elif type(data)==dict:
+                if "pfam" in url and isinstance(data, dict):
+                    # PDBe returns pfam mappings under a lowercased pdb key
+                    results_dict[pdb_id]["Pfam_url"] = (
+                        data[pdb_id.lower()]["Pfam"]
+                    )
+                elif isinstance(data, dict):
+                    # Save ligand data under 'ligand_url'
                     results_dict[pdb_id]["ligand_url"] = data[pdb_id.lower()]
-    
-    fails_dict = {"pfam_fails":all_pfam_fails, "ligand_fails": all_ligand_fails}
+
+    # Prepare a summary of failures
+    fails_dict = {"pfam_fails": all_pfam_fails,
+                  "ligand_fails": all_ligand_fails}
 
     return results_dict, fails_dict
 
@@ -176,13 +201,17 @@ def get_bmids_rows(pdb_id, results):
 
     new_rows = []
 
-    for bm_dict in results: # Iterate the dictionaries of each bm_id
+    # Each "bm_dict" corresponds to a bound molecule entry (bm_id)
+    for bm_dict in results:
         ligands_list = bm_dict["composition"]["ligands"]
 
-        for ligand in ligands_list: # Now we get the data in a list and add it to the new_rows list
-            new_row = [pdb_id, ligand["chain_id"], ligand["chem_comp_id"], bm_dict["bm_id"]]
+        # Iterate through ligands associated with this bound molecule
+        for ligand in ligands_list:
+            # Build a row matching the ligand_df columns
+            new_row = [pdb_id, ligand["chain_id"], ligand["chem_comp_id"],
+                       bm_dict["bm_id"]]
             new_rows.append(new_row)
-               
+
     return new_rows
 
 
@@ -201,19 +230,20 @@ def get_pfam_rows(pdb_id, results):
     Returns
     -------
     new_rows : list
-        a list of lists containing PDB ID, Chain ID, Pfam ID, Pfam name, and Pfam domain start and end positions
+        a list of lists containing PDB ID, Chain ID, Pfam ID, Pfam name,
+        and Pfam domain start and end positions
     """
 
     new_rows = []
-    for key, value in results.items(): # Iterate each different Pfam domain type
+    # results is a dict where keys are pfam IDs and values contain mappings
+    for key, value in results.items():
         pfam_id = key
         pfam_name = value["identifier"]
-        # Each domain can have multiple instances in many PDB chains
-        # We get all the needed data and add it to the new_rows list
-        new_rows = [[pdb_id, instance["chain_id"], pfam_id, pfam_name,
-                    instance["start"]["residue_number"],
-                    instance["end"]["residue_number"]] for instance in value["mappings"]]
-    
+        # For every mapping instance, append a row with start/end residues
+        new_rows.extend([[pdb_id, instance["chain_id"], pfam_id, pfam_name,
+                          instance["start"]["residue_number"],
+                          instance["end"]["residue_number"]]
+                         for instance in value["mappings"]])
     return new_rows
 
 
@@ -229,28 +259,40 @@ def generate_DFs(subset_pdb_ids, ligand_results):
 
     Returns
     -------
-    ligand_df : dataframe
+    ligand_df : pandas.DataFrame
         dataframe containing ligand data per PDB ID
-    pfam_df : dataframe
+    pfam_df : pandas.DataFrame
         dataframe containing Pfam domain data per PDB ID
     """
-    
+
+    # Initialize empty DataFrames with the desired columns
     ligand_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'ligand_id', "bm_id"])
-    pfam_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'pfam_id', "pfam_name", "start", "end"])
+    pfam_df = pd.DataFrame(columns=['pdb_id', 'chain_id', 'pfam_id',
+                                    "pfam_name", "start", "end"])
 
     for pdb_id in subset_pdb_ids:
         urls = ligand_results.get(pdb_id, {})
 
         try:
+            # Build rows for ligand_df from ligand_url results
             new_bmid_rows = get_bmids_rows(pdb_id, urls.get("ligand_url", []))
-            ligand_df = pd.concat([ligand_df, pd.DataFrame(new_bmid_rows, columns=ligand_df.columns)], ignore_index=True)
+            ligand_df = pd.concat([ligand_df,
+                                   pd.DataFrame(new_bmid_rows,
+                                                columns=ligand_df.columns)],
+                                  ignore_index=True)
         except Exception:
+            # If anything goes wrong while parsing ligand data, log it
             log.error(f"No ligand data for {pdb_id}")
 
         try:
+            # Build rows for pfam_df from Pfam_url results
             new_pfam_rows = get_pfam_rows(pdb_id, urls.get("Pfam_url", {}))
-            pfam_df = pd.concat([pfam_df, pd.DataFrame(new_pfam_rows, columns=pfam_df.columns)], ignore_index=True)
+            pfam_df = pd.concat([pfam_df,
+                                 pd.DataFrame(new_pfam_rows,
+                                              columns=pfam_df.columns)],
+                                ignore_index=True)
         except Exception:
+            # If parsing Pfam data fails, log the issue
             log.error(f"No Pfam domains for {pdb_id}")
 
     return ligand_df, pfam_df
@@ -267,28 +309,28 @@ def parallelize_DFs_generation(pdb_ids, ligand_results):
     ligand_results : dict
         a dictionary containing Pfam and ligand data for every PDB ID
     pdb_ids :
-        
 
     Returns
     -------
-    ligand_df : dataframe
+    ligand_df : pandas.DataFrame
         dataframe containing ligand data per PDB ID
-    pfam_df : dataframe
+    pfam_df : pandas.DataFrame
         dataframe containing Pfam domain data per PDB ID
     """
 
-    # Define number of workers
-    num_workers = min(os.cpu_count(), 12)  # Limit to 12 CPUs
-    chunk_size = max(1, len(pdb_ids) // num_workers)  # Divide data into chunks
+    # Determine an upper bound on parallel workers (cap at 12)
+    num_workers = min(os.cpu_count(), 12)
+    # Compute chunk size to split the pdb_ids across workers
+    chunk_size = max(1, len(pdb_ids) // num_workers)
+    chunks = [pdb_ids[i:i + chunk_size] for i in range(0, len(pdb_ids),
+                                                        chunk_size)]
 
-    # Split PDB IDs into chunks for parallel processing
-    chunks = [pdb_ids[i:i + chunk_size] for i in range(0, len(pdb_ids), chunk_size)]
-
-    # Use ProcessPoolExecutor for multiprocessing
+    # Use multiprocessing (ProcessPoolExecutor) to generate DataFrames in parallel
     with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
-        results = list(executor.map(generate_DFs, chunks, [ligand_results] * len(chunks)))
+        results = list(executor.map(generate_DFs,
+                                    chunks, [ligand_results] * len(chunks)))
 
-    # Merge results from all processes
+    # Concatenate partial results from all workers into final DataFrames
     ligand_df = pd.concat([res[0] for res in results], ignore_index=True)
     pfam_df = pd.concat([res[1] for res in results], ignore_index=True)
 
@@ -314,19 +356,24 @@ def smile_selection(response_json):
     """
 
     selected_smile = None
+    # rcsb_smiles may contain fields SMILES and SMILES_stereo
     rcsb_smiles = response_json["data"]["chem_comp"]["rcsb_chem_comp_descriptor"]
-    pdbx_smiles = response_json["data"]["chem_comp"]['pdbx_chem_comp_descriptor']
-    # We check if the SMILES are in the RCSB or PDBx data
-    # and if they are, we select the first one
-    if rcsb_smiles["SMILES"] != None: selected_smile = rcsb_smiles["SMILES"]
-    elif rcsb_smiles["SMILES_stereo"] != None: selected_smile = rcsb_smiles["SMILES_stereo"]
+    # pdbx_chem_comp_descriptor is typically a list of descriptors
+    pdbx_smiles = response_json["data"]["chem_comp"]["pdbx_chem_comp_descriptor"]
+
+    # Prefer the rcsb-provided SMILES if present
+    if rcsb_smiles["SMILES"] is not None:
+        selected_smile = rcsb_smiles["SMILES"]
+    elif rcsb_smiles["SMILES_stereo"] is not None:
+        selected_smile = rcsb_smiles["SMILES_stereo"]
     else:
+        # Fallback to scanning pdbx descriptors for a SMILES entry
         i = 0
-        while selected_smile == None and i < len(pdbx_smiles):
+        while selected_smile is None and i < len(pdbx_smiles):
             if pdbx_smiles[i]["type"] in ["SMILES", "SMILES_CANONICAL"]:
                 selected_smile = pdbx_smiles[i]["descriptor"]
             i += 1
-        
+
     return selected_smile
 
 
@@ -345,31 +392,36 @@ def fetch_SMILE_data(het):
     """
 
     url = "https://data.rcsb.org/graphql"
-
     query_compounds = """query molecule ($id: String!) {chem_comp(comp_id:$id){
-                                                    rcsb_chem_comp_descriptor {SMILES SMILES_stereo}
-                                                    pdbx_chem_comp_descriptor {type descriptor}}}"""
+        rcsb_chem_comp_descriptor {SMILES SMILES_stereo}
+        pdbx_chem_comp_descriptor {type descriptor}}}"""
 
     attempts = 0
+    # Errors that usually deserve a retry (rate limits, transient network issues)
     errors_list = ["429", "HTTPSConnectionPool", "RemoteDisconnected"]
-    while attempts < 5: # In case there is a 429 request error, it will keep trying up to 5 times
+    while attempts < 5:
         try:
-            response = requests.post(url, json={"query": query_compounds, "variables": {"id": het}}, timeout=60)
-            response.raise_for_status()  # Raise an error for bad status codes
+            response = requests.post(
+                url,
+                json={"query": query_compounds, "variables": {"id": het}},
+                timeout=60
+            )
+            response.raise_for_status()
+            # Parse and pick the appropriate SMILES string
             result = (het, smile_selection(response.json()))
-            
-            attempts = 5 # If successful, we have to break the while loop
-           
+            attempts = 5
         except Exception as e:
-            result = (het, None)  # Return None in case of an error
+            # If request fails, return (het, None) and possibly retry
+            result = (het, None)
             if any(err in str(e) for err in errors_list):
                 attempts += 1
             else:
                 attempts = 5
                 log.error(e)
-            if any(err in str(e) for err in errors_list) and attempts==5:
+            # If the last attempt failed on a retryable error, log it in detail
+            if any(err in str(e) for err in errors_list) and attempts == 5:
                 log.error(f"{het}: {str(e)}")
-        
+
     return result
 
 
@@ -378,24 +430,23 @@ def parallelize_SMILE_request(ligand_df):
 
     Parameters
     ----------
-    ligand_df : dataframe
+    ligand_df : pandas.DataFrame
         dataframe containing ligand data (including hetcodes)
 
     Returns
     -------
-    ligand_df : dataframe
+    ligand_df : pandas.DataFrame
         the same dataframe as the input but with the SMILEs in a new column
     """
-    
-    raw_smiles_data = {}
-    # Use ThreadPoolExecutor to parallelize requests
+
+    # Use a small thread pool for parallel GraphQL requests
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         results = executor.map(fetch_SMILE_data, list(set(ligand_df.ligand_id)))
-    
-    # Store results in dictionary and map them to the ligand_df
+
+    # Build a mapping het -> SMILES and add it to the ligand_df
     raw_smiles_data = dict(results)
     ligand_df["SMILES"] = ligand_df["ligand_id"].map(raw_smiles_data)
-    
+
     return ligand_df
 
 
@@ -414,9 +465,10 @@ def count_atoms(smiles):
     """
 
     atoms_num = None
-    if type(smiles) == str:  # Check for NaN or non-string values
-        mol = Chem.MolFromSmiles(smiles, sanitize = False)
-        atoms_num = mol.GetNumAtoms() if mol else None  # Mark invalid SMILES
+    if isinstance(smiles, str):
+        # Use RDKit to parse SMILES. sanitize=False to avoid strict sanitization errors
+        mol = Chem.MolFromSmiles(smiles, sanitize=False)
+        atoms_num = mol.GetNumAtoms() if mol else None
     return atoms_num
 
 
@@ -425,32 +477,39 @@ def filter_small_ligands(ligand_df):
 
     Parameters
     ----------
-    ligand_df : dataframe
+    ligand_df : pandas.DataFrame
         A ligand dataframe that includes the column "SMILES"
 
     Returns
     -------
-    ligand_df : dataframe
-        the input dataframe with rows filtered based on the ligands number of atoms
+    ligand_df : pandas.DataFrame
+        the input dataframe with rows filtered based on the ligands number
+        of atoms
     """
 
+    # Work on a copy to avoid mutating the caller's DataFrame
     ligand_df = ligand_df.copy()
+    # Remove entries with unknown ligand code 'UNL'
     ligand_df = ligand_df[ligand_df["ligand_id"] != "UNL"]
+    # Count unique PDB IDs before filtering
     pdb_ligand_num = len(set(ligand_df.pdb_id))
+    # Compute number of atoms for each SMILES
     ligand_df["num_atoms"] = ligand_df["SMILES"].apply(count_atoms)
+    # Keep only ligands with at least 10 atoms
     ligand_df = ligand_df[ligand_df["num_atoms"].notna() &
-                         (ligand_df["num_atoms"] >= 10)].copy()
-    
+                          (ligand_df["num_atoms"] >= 10)].copy()
+    # Drop temporary column used for filtering
     ligand_df = ligand_df.drop(columns=["num_atoms"])
-    
+    # Compute how many PDB IDs were filtered out
     filtered_pdb_num = pdb_ligand_num - len(set(ligand_df.pdb_id))
-    log.info(f"PDB IDs filtered after small ligand filtering: {filtered_pdb_num}")
-
+    log.info(f"PDB IDs filtered after small ligand filtering: "
+             f"{filtered_pdb_num}")
     return ligand_df
 
 
 def run_requests(pdb_ids):
-    """For a given list of PDB IDs, request ligand and Pfam data, as well as their ligand SMILEs.
+    """For a given list of PDB IDs, request ligand and Pfam data, as well
+    as their ligand SMILEs.
 
     Parameters
     ----------
@@ -459,16 +518,19 @@ def run_requests(pdb_ids):
 
     Returns
     -------
-    ligand_df : dataframe
+    ligand_df : pandas.DataFrame
         dataframe containing ligand data per PDB ID
-    pfam_df : dataframe
+    pfam_df : pandas.DataFrame
         dataframe containing Pfam domain data per PDB ID
     """
 
+    # First request Pfam and ligand raw data
     ligand_results, fails_dict = parallelize_pfam_ligand_request(pdb_ids)
     log.info("Generating ligand and Pfam dataframes")
+    # Convert raw results into structured DataFrames in parallel
     ligand_df, pfam_df = parallelize_DFs_generation(pdb_ids, ligand_results)
     log.info("Requesting SMILEs")
+    # Fetch SMILES for every unique ligand and attach to ligand_df
     ligand_df = parallelize_SMILE_request(ligand_df)
     return ligand_df, pfam_df, fails_dict
 
@@ -480,60 +542,64 @@ def get_ligand_pfam_data():
     -------
     results_dict : dict
         a dictionary containing the ligand dataframe, Pfam dataframe and PDB IDs
-
     """
 
     log.info("Retrieving PDB IDs with bound molecules")
     pdb_ids = get_pdb_ids()
-    
     log.info(f"Total PDB IDs: {len(pdb_ids)}")
     log.info("Requesting ligand and Pfam data")
 
     ligand_df, pfam_df, fails_dict = run_requests(pdb_ids)
     log.info(f"Successful PDB IDs ligand requests: {len(set(ligand_df.pdb_id))}")
     log.info(f"Successful PDB IDs Pfam requests: {len(set(pfam_df.pdb_id))}")
-    
-    results_dict = {"ligand_df":ligand_df, "pfam_df":pfam_df, "fails":fails_dict}
+
+    results_dict = {"ligand_df": ligand_df,
+                    "pfam_df": pfam_df,
+                    "fails": fails_dict}
 
     return results_dict
 
 
 def retry_lp_request(ligand_df, pfam_df, fails_dict):
-    """Requests Pfam and ligand data for PDB IDs that failed request originally.
-    Data that could be recovered is added to the input dataframes.
+    """Requests Pfam and ligand data for PDB IDs that failed request
+    originally. Data that could be recovered is added to the input dataframes.
 
     Parameters
     ----------
-    ligand_df : dataframe
+    ligand_df : pandas.DataFrame
         dataframe containing ligand data
-    pfam_df : dataframe
+    pfam_df : pandas.DataFrame
         dataframe containing Pfam domains data
     fails_dict : dict
         dictionary with the lists of PDB IDs that failed ligand and Pfam data requests
-        
 
     Returns
     -------
-    ligand_df : dataframe
+    ligand_df : pandas.DataFrame
         dataframe containing ligand data per PDB ID
-    pfam_df : dataframe
+    pfam_df : pandas.DataFrame
         dataframe containing Pfam domain data per PDB ID
     """
-
+    
+    # Extract lists of PDB IDs that failed previously
     ligand_pdb_ids = fails_dict["ligand_fails"]
     pfam_pdb_ids = fails_dict["pfam_fails"]
-    
+
     log.info(f"{len(ligand_pdb_ids)} ligand PDB IDs failed request that can be recovered")
     log.info(f"{len(pfam_pdb_ids)} Pfam PDB IDs failed request that can be recovered")
 
     if ligand_pdb_ids:
+        # Retry fetching ligand data for the failed PDB IDs
         ligand_df_ligand, _, _ = run_requests(ligand_pdb_ids)
         log.info(f"Recovered {len(set(ligand_df_ligand.pdb_id))} ligand PDB IDs")
+        # Merge recovered ligand rows into the provided ligand_df
         ligand_df = pd.concat([ligand_df, ligand_df_ligand], ignore_index=True)
-    
+
     if pfam_pdb_ids:
+        # Retry fetching Pfam data for the failed PDB IDs
         _, pfam_df_pfam, _ = run_requests(pfam_pdb_ids)
         log.info(f"Recovered {len(set(pfam_df_pfam.pdb_id))} Pfam PDB IDs")
+        # Merge recovered Pfam rows into the provided pfam_df
         pfam_df = pd.concat([pfam_df, pfam_df_pfam], ignore_index=True)
 
     return ligand_df, pfam_df

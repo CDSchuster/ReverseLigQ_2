@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 import requests
-from generate_db.LigandPfamDataRequest import parallelize_pfam_ligand_request, fetch_url
+from pdb_db.LigandPfamDataRequest import parallelize_pfam_ligand_request, fetch_url
 
 
 # URLs for requests

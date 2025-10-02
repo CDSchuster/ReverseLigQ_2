@@ -244,7 +244,8 @@ def run_ccd_script(python_exe: str, ccd_script: Path, *, workdir: Path, ccd_csv:
 
 def read_ccd_map(ccd_csv: Path, logger: logging.Logger) -> pd.DataFrame:
     """
-    Read the CCD CSV map (produced by the CCD step).
+    Read the CCD CSV map (produced by the CCD step), normalize InChIKeys,
+    and drop duplicate (inchikey, chemcomp_id) pairs if any.
 
     Parameters
     ----------
@@ -256,13 +257,28 @@ def read_ccd_map(ccd_csv: Path, logger: logging.Logger) -> pd.DataFrame:
     Returns
     -------
     pandas.DataFrame
-        DataFrame with CCD data. `inchikey` is normalized to uppercase/stripped.
+        DataFrame with CCD data. `inchikey` is normalized to uppercase/stripped
+        and duplicate pairs are removed.
     """
     logger.info("[3/5] Reading CCD CSV… (%s)", ccd_csv)
     df = pd.read_csv(ccd_csv)
+
     if "inchikey" in df.columns:
         df["inchikey"] = df["inchikey"].astype(str).str.strip().str.upper()
-    logger.info("    CCD rows: %s", f"{len(df):,}")
+
+    logger.info("    CCD rows before dedup: %s", f"{len(df):,}")
+
+    # Deduplicate defensively
+    if {"inchikey", "chemcomp_id"}.issubset(df.columns):
+        before = len(df)
+        df = df.drop_duplicates(subset=["inchikey", "chemcomp_id"])
+        after = len(df)
+        if after < before:
+            logger.info("    Deduplicated CCD: %s rows removed", f"{before - after:,}")
+    else:
+        logger.warning("    CCD data missing 'inchikey' or 'chemcomp_id' for dedup")
+
+    logger.info("    CCD rows after clean: %s", f"{len(df):,}")
     return df
 
 
@@ -363,7 +379,6 @@ def add_pfam_ids_by_uniprot(results: pd.DataFrame, *, max_workers: int, timeout:
         validate="m:1",
     ).drop(columns=["uniprot"])
 
-    logger.info("    proteins with Pfam match: %s", f"{out['pfam_ids'].notna().sum():,}")
     return out
 
 

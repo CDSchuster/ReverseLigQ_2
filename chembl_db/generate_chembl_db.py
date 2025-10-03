@@ -419,9 +419,10 @@ def parse_args() -> argparse.Namespace:
     argparse.Namespace
         Parsed arguments used by `main`.
     """
-    ap = argparse.ArgumentParser(description="Run ChEMBL→CCD→Pfam pipeline (logged) and export CSV.")
+    ap = argparse.ArgumentParser(description="""Run ChEMBL→CCD→Pfam pipeline (logged) and export CSV. This pipeline requires a local ChEMBL SQLite database (downloadable from:
+    https://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/latest/)""")
     ap.add_argument("--chembl-sqlite", required=True, help="Path to chembl_XX.db (SQLite)")
-    ap.add_argument("--ccd-script", default="download_parse_ccd.py", help="Path to download_parse_ccd.py")
+    ap.add_argument("--ccd-script", default="download_parse_ccd.py", help="Path to download_parse_ccd.py (default: download_parse_ccd.py)")
     ap.add_argument("--workdir", default="temp", help="Working directory for CCD step (default: temp)")
     ap.add_argument("--ccd-csv", default="temp/ccd.csv", help="CCD CSV output (default: temp/ccd.csv)")
     ap.add_argument("--out-csv", default="chembl_db.csv", help="Final CSV output (default: chembl_db.csv)")

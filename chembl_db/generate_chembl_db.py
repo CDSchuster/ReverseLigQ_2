@@ -67,17 +67,22 @@ SELECT DISTINCT
     csq.accession                              AS protein,
     act.pchembl_value                          AS pchembl,
     act.activity_comment                       AS comment
-FROM activities               AS act
-JOIN assays                   AS a    ON act.assay_id = a.assay_id
-JOIN target_dictionary        AS td   ON a.tid = td.tid
-JOIN target_components        AS tc   ON td.tid = tc.tid
-JOIN component_sequences      AS csq  ON tc.component_id = csq.component_id
-JOIN compound_records         AS cr   ON act.record_id = cr.record_id
-JOIN molecule_dictionary      AS md   ON cr.molregno = md.molregno
-JOIN compound_structures      AS cs   ON md.molregno = cs.molregno
+FROM activities              AS act
+JOIN assays                  AS a    ON act.assay_id = a.assay_id
+JOIN molecule_dictionary     AS md   ON act.molregno = md.molregno
+JOIN compound_structures     AS cs   ON md.molregno = cs.molregno
+JOIN target_dictionary       AS td   ON a.tid = td.tid
+JOIN target_components       AS tc   ON td.tid = tc.tid
+JOIN component_sequences     AS csq  ON tc.component_id = csq.component_id
 WHERE a.assay_type = 'B'
   AND td.target_type = 'SINGLE PROTEIN'
-  AND act.pchembl_value IS NOT NULL
+  AND (
+        act.pchembl_value IS NOT NULL
+        OR (
+            act.pchembl_value IS NULL
+            AND act.activity_comment IN ('Active', 'active', 'inactive', 'Not Active')
+        )
+      )
   AND cs.canonical_smiles IS NOT NULL
   AND cs.standard_inchi_key IS NOT NULL;
 """
@@ -204,6 +209,16 @@ def load_chembl_results(db_path: Path, logger: logging.Logger) -> pd.DataFrame:
         df = pd.read_sql_query(SQL_QUERY, con)
     if "inchikey" in df.columns:
         df["inchikey"] = df["inchikey"].astype(str).str.strip().str.upper()
+    
+    comment_mapping = {
+    "active": "Active",
+    "Active": "Active",
+    "inactive": "Inactive",
+    "Not Active": "Inactive"
+    }
+
+    df["comment"] = df["comment"].replace(comment_mapping)
+
     logger.info("    rows: %s", f"{len(df):,}")
     return df
 
@@ -379,6 +394,17 @@ def add_pfam_ids_by_uniprot(results: pd.DataFrame, *, max_workers: int, timeout:
         validate="m:1",
     ).drop(columns=["uniprot"])
 
+    ordered_cols = [
+    "ligand_id",
+    "pdb_id",
+    "smiles",
+    "inchikey",
+    "protein",
+    "pfam_ids",
+    "pchembl",
+    "comment",
+]
+    out = out[ordered_cols]
     return out
 
 

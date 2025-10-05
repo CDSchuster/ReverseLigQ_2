@@ -27,7 +27,7 @@ def get_pdb_ids():
     """
 
     # Open the JSON file that contains the RCSB search query template
-    with open("generate_db/query_pdb.json", "r") as file:
+    with open("db_generation/pdb_db/query_pdb.json", "r") as file:
         query_template = json.load(file)
 
     # Base URL for RCSB search API and headers for JSON body

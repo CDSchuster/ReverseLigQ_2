@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
 End-to-end ChEMBL → CCD → UniProt/Pfam pipeline (CLI) **with structured logging**.
 
-This script reproduces the Jupyter workflow as a single, reusable command-line
-program and **logs** every step to a rotating log file (and optionally the
-console). It performs:
+This generates a database of chembl ligands with their interactions, includes corresponding PDB IDs and associated information about binding targets. 
+It performs:
 
 1) Query a local ChEMBL SQLite database for bioactivity rows (ligand, SMILES,
    InChIKey, protein UniProt, pChEMBL, comment) using an explicit SQL query.

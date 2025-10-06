@@ -54,8 +54,8 @@ import argparse
 import pandas as pd
 
 from logger import setup_logging
-import chembl_db.uniprot_pfam as up
-
+import db_generation.chembl_db.uniprot_pfam as up
+from db_generation.chembl_db.download_parse_ccd import run_ccd_download_parse
 
 SQL_QUERY = """
 SELECT DISTINCT
@@ -84,9 +84,6 @@ WHERE a.assay_type = 'B'
   AND cs.canonical_smiles IS NOT NULL
   AND cs.standard_inchi_key IS NOT NULL;
 """
-
-
-# ========================== Logging ==========================
 
 
 def run_cmd_stream(cmd: list[str], logger: logging.Logger, cwd: Optional[Path] = None) -> int:
@@ -164,40 +161,79 @@ def load_chembl_results(db_path: Path, logger: logging.Logger) -> pd.DataFrame:
     logger.info("    rows: %s", f"{len(df):,}")
     return df
 
-
-def run_ccd_script(python_exe: str, ccd_script: Path, *, workdir: Path, ccd_csv: Path, logger: logging.Logger) -> int:
+def run_ccd_script(
+    workdir: Path,
+    ccd_csv: Path,
+    logger: logging.Logger,
+    *,
+    out_parquet: Optional[Path] = None,
+    max_records: Optional[int] = None,
+    batch_size: int = 10000,
+) -> int:
     """
-    Execute the CCD downloader/parser script to produce the CCD CSV mapping.
+    Run the CCD downloader/parser pipeline as an importable function (no subprocess).
+
+    If the target CSV (or Parquet) already exists, they are removed before rebuilding,
+    ensuring a clean and non-duplicated output.
 
     Parameters
     ----------
-    python_exe : str
-        Python interpreter to invoke for the child script (e.g., sys.executable).
-    ccd_script : pathlib.Path
-        Path to the CCD script (download_parse_ccd.py).
     workdir : pathlib.Path
-        Working directory used by the CCD script (contains SDF and outputs).
+        Working directory used by the CCD step.
     ccd_csv : pathlib.Path
-        Path where the CCD CSV will be written (e.g., temp/ccd.csv).
+        Target CSV path for CCD output (chemcomp_id, inchikey).
     logger : logging.Logger
-        Logger used to stream the child process output.
+        Logger for progress and status messages.
+    out_parquet : pathlib.Path or None, optional
+        Optional Parquet output path.
+    max_records : int or None, optional
+        Limit parsing to N molecules (debug).
+    batch_size : int, default=10000
+        Batch size for incremental writes.
 
     Returns
     -------
     int
-        Subprocess return code (0 indicates success).
+        0 on success, 1 on failure.
     """
-    logger.info("[2/5] Running CCD downloader/parser…")
-    workdir.mkdir(parents=True, exist_ok=True)
-    ccd_csv.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [
-        python_exe,
-        str(ccd_script),
-        "--workdir", str(workdir),
-        "--out-csv", str(ccd_csv),
-    ]
-    return run_cmd_stream(cmd, logger)
+    from db_generation.chembl_db.download_parse_ccd import run_ccd_download_parse
 
+    try:
+        workdir.mkdir(parents=True, exist_ok=True)
+        ccd_csv.parent.mkdir(parents=True, exist_ok=True)
+
+        # Always delete old outputs to avoid duplication
+        if ccd_csv.exists():
+            try:
+                ccd_csv.unlink()
+                logger.info("Removed existing CCD CSV before regeneration: %s", ccd_csv)
+            except Exception as e:
+                logger.warning("Could not remove existing CCD CSV (%s): %s", ccd_csv, e)
+        if out_parquet and out_parquet.exists():
+            try:
+                out_parquet.unlink()
+                logger.info("Removed existing CCD Parquet before regeneration: %s", out_parquet)
+            except Exception as e:
+                logger.warning("Could not remove existing CCD Parquet (%s): %s", out_parquet, e)
+
+        # Run the importable step
+        logger.info("[2/5] Running CCD downloader/parser (imported)…")
+        run_ccd_download_parse(
+            workdir=workdir,
+            out_csv=ccd_csv,
+            out_parquet=out_parquet,
+            parse=True,
+            keep_gz=False,
+            max_records=max_records,
+            batch_size=batch_size,
+        )
+
+        logger.info("CCD parsing completed successfully → %s", ccd_csv)
+        return 0
+
+    except Exception as e:
+        logger.exception("CCD step failed: %s", e)
+        return 1
 
 def read_ccd_map(ccd_csv: Path, logger: logging.Logger) -> pd.DataFrame:
     """
@@ -237,8 +273,6 @@ def read_ccd_map(ccd_csv: Path, logger: logging.Logger) -> pd.DataFrame:
 
     logger.info("    CCD rows after clean: %s", f"{len(df):,}")
     return df
-
-
 # ========================== Merge helpers ==========================
 
 def add_pdb_id_by_inchikey(results: pd.DataFrame, ccd_map: pd.DataFrame, logger: logging.Logger) -> pd.DataFrame:
@@ -349,8 +383,135 @@ def add_pfam_ids_by_uniprot(results: pd.DataFrame, *, max_workers: int, timeout:
     out = out[ordered_cols]
     return out
 
+def run_chembl_db_pipeline(
+    *,
+    chembl_sqlite: str | Path,
+    ccd_script: str | Path = "download_parse_ccd.py",
+    workdir: str | Path = "temp",
+    ccd_csv: str | Path = "temp/ccd.csv",
+    out_csv: str | Path = "chembl_db.csv",
+    skip_ccd: bool = False,
+    drop_missing_pdb: bool = False,
+    pfam_workers: int = 24,
+    pfam_timeout: int = 45,
+    pfam_retries: int = 3,
+    log_dir: str | Path = "logs",
+    log_level: str = "INFO",
+    no_console: bool = False,
+) -> int:
+    """
+    Run the complete ChEMBL→CCD→Pfam pipeline with structured logging.
 
-# ========================== CLI ==========================
+    This function can be imported and executed programmatically from another script,
+    or used via CLI through `main()` for testing. It sequentially performs:
+    1) Querying a local ChEMBL SQLite database.
+    2) Running or skipping the CCD parsing step.
+    3) Merging PDB IDs by InChIKey.
+    4) Resolving Pfam IDs via UniProt REST API.
+    5) Exporting the final merged dataset to CSV.
+
+    Parameters
+    ----------
+    chembl_sqlite : str or pathlib.Path
+        Path to the local ChEMBL SQLite database (e.g., "chembl_33.db").
+    ccd_script : str or pathlib.Path, default="download_parse_ccd.py"
+        Path to the script that downloads and parses the PDB CCD data.
+    workdir : str or pathlib.Path, default="temp"
+        Working directory used for temporary CCD data files.
+    ccd_csv : str or pathlib.Path, default="temp/ccd.csv"
+        Path to the output CSV generated by the CCD parsing step.
+    out_csv : str or pathlib.Path, default="chembl_db.csv"
+        Path for the final merged CSV file to be written.
+    skip_ccd : bool, default=False
+        If True, skip running the CCD parsing script (requires an existing CSV).
+    drop_missing_pdb : bool, default=False
+        If True, drop rows without `pdb_id` after merging with CCD data.
+    pfam_workers : int, default=24
+        Number of threads for Pfam resolution via UniProt API (1 = sequential).
+    pfam_timeout : int, default=45
+        Per-request timeout (seconds) for UniProt REST API calls.
+    pfam_retries : int, default=3
+        Maximum number of retries for failed UniProt requests.
+    log_dir : str or pathlib.Path, default="logs"
+        Directory where log files will be stored.
+    log_level : str, default="INFO"
+        Logging verbosity level ("DEBUG", "INFO", "WARNING", or "ERROR").
+    no_console : bool, default=False
+        If True, disable console output (log only to file).
+
+    Returns
+    -------
+    int
+        0 if all steps completed successfully; non-zero if any step failed.
+
+    Notes
+    -----
+    The pipeline assumes that helper functions are available in the same module:
+    `setup_logging`, `load_chembl_results`, `run_ccd_script`,
+    `read_ccd_map`, `add_pdb_id_by_inchikey`, and `add_pfam_ids_by_uniprot`.
+    """
+    # Paths
+    chembl_db = Path(chembl_sqlite)
+    workdir = Path(workdir)
+    ccd_csv = Path(ccd_csv)
+    out_csv = Path(out_csv)
+    log_dir = Path(log_dir)
+
+    # Logging
+    log_filename = log_dir / "chembl_pipeline.log"
+    log_filename.parent.mkdir(parents=True, exist_ok=True)
+    logger = setup_logging("chembl_pipeline", log_filename)
+
+    logger.info("[1/5] Loading ChEMBL results from SQLite: %s", chembl_db)
+    results = load_chembl_results(chembl_db, logger)
+
+    # 2) Run CCD 
+    if not skip_ccd:
+        logger.info("[2/5] Running CCD downloader/parser")
+        workdir.mkdir(parents=True, exist_ok=True)
+        rc = run_ccd_script(
+            workdir=workdir,
+            ccd_csv=ccd_csv,
+            logger=logger,
+            # opcionales:
+            out_parquet=None,
+            max_records=None,
+            batch_size=10000,
+        )
+        if rc != 0:
+            logger.error("CCD script failed with return code %s", rc)
+            return rc
+    else:
+        logger.info("[2/5] Skipping CCD run (using existing CSV): %s", ccd_csv)
+
+    # 3) Merge PDB data
+    logger.info("[3/5] Reading CCD map and merging with ChEMBL data")
+    ccd_map = read_ccd_map(ccd_csv, logger)
+    results = add_pdb_id_by_inchikey(results, ccd_map, logger)
+
+    if drop_missing_pdb:
+        before = len(results)
+        results = results.dropna(subset=["pdb_id"]).reset_index(drop=True)
+        logger.info("Dropped rows without pdb_id: %s", f"{before - len(results):,}")
+
+    # 4) Pfam resolution
+    logger.info("[4/5] Resolving Pfam IDs via UniProt (workers=%d, timeout=%ds, retries=%d)",
+                pfam_workers, pfam_timeout, pfam_retries)
+    results = add_pfam_ids_by_uniprot(
+        results,
+        max_workers=pfam_workers,
+        timeout=pfam_timeout,
+        retries=pfam_retries,
+        logger=logger,
+    )
+
+    # 5) Export
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    results.to_csv(out_csv, index=False)
+    logger.info("[5/5] Wrote final CSV: %s", out_csv)
+    logger.info("Pipeline finished successfully.")
+    return 0
+# ========================== CLI (Temporal for testing) ==========================
 
 def parse_args() -> argparse.Namespace:
     """
@@ -381,6 +542,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     """
+    Temporal for testing the pipeline.
     Run the complete pipeline according to CLI arguments with structured logging.
 
     Returns
@@ -389,54 +551,8 @@ def main() -> int:
         Zero on success; non-zero if any step fails.
     """
     args = parse_args()
-
-    log_filename = Path(args.log_dir) / "chembl_pipeline.log"
-    log_filename.parent.mkdir(parents=True, exist_ok=True)
-    logger = setup_logging("chembl_pipeline", log_filename)
-
-    chembl_db = Path(args.chembl_sqlite)
-    ccd_script = Path(args.ccd_script)
-    workdir = Path(args.workdir)
-    ccd_csv = Path(args.ccd_csv)
-    out_csv = Path(args.out_csv)
-
-    # 1) Query ChEMBL SQLite
-    results = load_chembl_results(chembl_db, logger)
-
-    # 2) Run CCD script (unless skipped)
-    if not args.skip_ccd:
-        rc = run_ccd_script(sys.executable, ccd_script, workdir=workdir, ccd_csv=ccd_csv, logger=logger)
-        if rc != 0:
-            logger.error("CCD script failed with return code %s", rc)
-            return rc
-    else:
-        logger.info("[2/5] Skipping CCD run (using existing CSV)")
-
-    # 3) Read CCD CSV and merge pdb_id by InChIKey
-    ccd_map = read_ccd_map(ccd_csv, logger)
-    results = add_pdb_id_by_inchikey(results, ccd_map, logger)
-    if args.drop_missing_pdb:
-        before = len(results)
-        results = results.dropna(subset=["pdb_id"]).reset_index(drop=True)
-        logger.info("    dropped rows without pdb_id: %s", f"{before - len(results):,}")
-
-    # 4) Resolve Pfam IDs per protein and merge
-    results = add_pfam_ids_by_uniprot(
-        results,
-        max_workers=args.pfam_workers,
-        timeout=args.pfam_timeout,
-        retries=args.pfam_retries,
-        logger=logger,
-    )
-
-    # 5) Write final CSV
-    out_csv.parent.mkdir(parents=True, exist_ok=True)
-    results.to_csv(out_csv, index=False)
-    logger.info("[5/5] Wrote final CSV: %s", out_csv)
-
-    logger.info("Pipeline finished successfully.")
-    return 0
+    return run_chembl_db_pipeline(**vars(args))
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

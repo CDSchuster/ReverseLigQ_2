@@ -6,12 +6,12 @@ by using PDB data.
 import logging
 import pandas as pd
 
-from pdb_db.LigandPfamDataRequest import (
-    get_ligand_pfam_data,
-    filter_small_ligands,
-    retry_lp_request,
+from db_generation.pdb_db.LigandPfamDataRequest import (
+     get_ligand_pfam_data,
+     filter_small_ligands,
+     retry_lp_request,
 )
-from pdb_db.Interactions import get_interaction_data
+from db_generation.pdb_db.Interactions import get_interaction_data
 
 
 log = logging.getLogger("generateDB_log")

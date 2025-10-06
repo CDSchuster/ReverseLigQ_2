@@ -85,7 +85,7 @@ def parallelize_interactions_request(pdb_bm_tuples):
         (pdb_id, bm, url_template.format(pdb_id=pdb_id, bm=bm))
         for pdb_id, bm in pdb_bm_tuples
     ]
-
+    print(tasks)
     # Use up to 500 threads, but not more than number of tasks
     max_workers = min(500, len(tasks))
 

@@ -307,7 +307,6 @@ def add_pfam_ids_by_uniprot(results: pd.DataFrame, *, max_workers: int, timeout:
 def run_chembl_db_pipeline(
     *,
     chembl_sqlite: str | Path,
-    ccd_script: str | Path = "download_parse_ccd.py",
     workdir: str | Path = "temp",
     ccd_csv: str | Path = "temp/ccd.csv",
     out_csv: str | Path = "chembl_db.csv",
@@ -335,8 +334,6 @@ def run_chembl_db_pipeline(
     ----------
     chembl_sqlite : str or pathlib.Path
         Path to the local ChEMBL SQLite database (e.g., "chembl_33.db").
-    ccd_script : str or pathlib.Path, default="download_parse_ccd.py"
-        Path to the script that downloads and parses the PDB CCD data.
     workdir : str or pathlib.Path, default="temp"
         Working directory used for temporary CCD data files.
     ccd_csv : str or pathlib.Path, default="temp/ccd.csv"

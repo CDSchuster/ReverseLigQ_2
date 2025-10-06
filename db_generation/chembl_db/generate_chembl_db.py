@@ -315,8 +315,6 @@ def run_chembl_db_pipeline(
     pfam_workers: int = 24,
     pfam_timeout: int = 45,
     pfam_retries: int = 3,
-    log_dir: str | Path = "logs",
-    log_level: str = "INFO",
     no_console: bool = False,
 ) -> int:
     """

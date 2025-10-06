@@ -44,40 +44,17 @@ import time
 from pathlib import Path
 from typing import Iterable, Dict, Set, Optional
 
+import logging
 import pandas as pd
 
-import logging
 import db_generation.chembl_db.uniprot_pfam as up
 from db_generation.chembl_db.download_parse_ccd import run_ccd_download_parse
 
-# Cargar la query sql en un archivo aparte.
-SQL_QUERY = """
-SELECT DISTINCT
-    md.chembl_id                               AS ligand_id,
-    cs.canonical_smiles                        AS smiles,
-    UPPER(cs.standard_inchi_key)               AS inchikey,
-    csq.accession                              AS protein,
-    act.pchembl_value                          AS pchembl,
-    act.activity_comment                       AS comment
-FROM activities              AS act
-JOIN assays                  AS a    ON act.assay_id = a.assay_id
-JOIN molecule_dictionary     AS md   ON act.molregno = md.molregno
-JOIN compound_structures     AS cs   ON md.molregno = cs.molregno
-JOIN target_dictionary       AS td   ON a.tid = td.tid
-JOIN target_components       AS tc   ON td.tid = tc.tid
-JOIN component_sequences     AS csq  ON tc.component_id = csq.component_id
-WHERE a.assay_type = 'B'
-  AND td.target_type = 'SINGLE PROTEIN'
-  AND (
-        act.pchembl_value IS NOT NULL
-        OR (
-            act.pchembl_value IS NULL
-            AND act.activity_comment IN ('Active', 'active', 'inactive', 'Not Active')
-        )
-      )
-  AND cs.canonical_smiles IS NOT NULL
-  AND cs.standard_inchi_key IS NOT NULL;
-"""
+SCRIPT_DIR = Path(__file__).resolve().parent
+SQL_FILE = SCRIPT_DIR / "query.sql"
+
+with open(SQL_FILE, "r", encoding="utf-8") as f:
+    SQL_QUERY = f.read()
 log = logging.getLogger("generateDB_log")
 
 # ========================== I/O helpers ==========================

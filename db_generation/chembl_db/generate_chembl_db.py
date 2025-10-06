@@ -40,9 +40,6 @@ Notes
 
 from __future__ import annotations
 
-import argparse
-import logging
-from logging.handlers import RotatingFileHandler
 import os
 import platform
 import shutil
@@ -53,10 +50,11 @@ import time
 from pathlib import Path
 from typing import Iterable, Dict, Set, Optional
 
+import argparse
 import pandas as pd
 
-# Local dependency: your translated UniProt→Pfam helper
-import uniprot_pfam as up
+from logger import setup_logging
+import chembl_db.uniprot_pfam as up
 
 
 SQL_QUERY = """
@@ -89,62 +87,6 @@ WHERE a.assay_type = 'B'
 
 
 # ========================== Logging ==========================
-
-def setup_logger(log_dir: Path, level: str = "INFO", console: bool = True) -> logging.Logger:
-    """
-    Configure logging to a rotating file (and optional console).
-
-    Parameters
-    ----------
-    log_dir : pathlib.Path
-        Directory to store log files. A timestamped file will be created and
-        a copy named ``latest.log`` is maintained for convenience.
-    level : str, optional
-        Logging level name (e.g., "DEBUG", "INFO", "WARNING"), by default "INFO".
-    console : bool, optional
-        If True, also log to stdout, by default True.
-
-    Returns
-    -------
-    logging.Logger
-        Configured logger instance named "pipeline".
-    """
-    log_dir.mkdir(parents=True, exist_ok=True)
-    ts = time.strftime("%Y-%m-%d_%H-%M-%S")
-    log_path = log_dir / f"run_{ts}.log"
-
-    logger = logging.getLogger("pipeline")
-    logger.setLevel(getattr(logging, level.upper(), logging.INFO))
-    logger.handlers.clear()
-    logger.propagate = False
-
-    fmt = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s", "%Y-%m-%d %H:%M:%S")
-
-    fh = RotatingFileHandler(log_path, maxBytes=5_000_000, backupCount=5, encoding="utf-8")
-    fh.setLevel(getattr(logging, level.upper(), logging.INFO))
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
-
-    if console:
-        ch = logging.StreamHandler(sys.stdout)
-        ch.setLevel(getattr(logging, level.upper(), logging.INFO))
-        ch.setFormatter(logging.Formatter("%(message)s"))
-        logger.addHandler(ch)
-
-    # Header context
-    logger.info("=== ChEMBL→CCD→Pfam Pipeline ===")
-    logger.info("Python: %s", sys.version.replace("\n", " "))
-    logger.info("Platform: %s | %s", platform.system(), platform.version())
-    logger.info("CWD: %s", os.getcwd())
-    logger.info("Log file: %s", log_path)
-
-    # Maintain latest.log (copy for portability)
-    try:
-        shutil.copyfile(log_path, log_dir / "latest.log")
-    except Exception:
-        pass
-
-    return logger
 
 
 def run_cmd_stream(cmd: list[str], logger: logging.Logger, cwd: Optional[Path] = None) -> int:
@@ -448,7 +390,9 @@ def main() -> int:
     """
     args = parse_args()
 
-    logger = setup_logger(Path(args.log_dir), level=args.log_level, console=not args.no_console)
+    log_filename = Path(args.log_dir) / "chembl_pipeline.log"
+    log_filename.parent.mkdir(parents=True, exist_ok=True)
+    logger = setup_logging("chembl_pipeline", log_filename)
 
     chembl_db = Path(args.chembl_sqlite)
     ccd_script = Path(args.ccd_script)

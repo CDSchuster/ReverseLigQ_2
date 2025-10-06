@@ -16,18 +16,17 @@ Usage:
   python download_parse_ccd.py \
     --out-parquet ccd.parquet \
     --out-csv ccd.csv
-
 """
 
 from __future__ import annotations
 
-import argparse
 import gzip
-import os
-import sys
-import time
 from pathlib import Path
 from typing import Optional, List
+import time
+
+import os
+import sys
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -36,16 +35,12 @@ from tqdm import tqdm
 
 import pandas as pd
 
-try:
-    from rdkit import Chem
-    from rdkit.Chem import rdMolDescriptors  # noqa: F401 (kept for compatibility)
-    RDKit_OK = True
-except Exception:
-    RDKit_OK = False
-
+# RDKit is a hard requirement; if not installed, let ImportError surface.
+from rdkit import Chem
+from rdkit.Chem import rdMolDescriptors  # noqa: F401 (kept for compatibility)
 
 DEFAULT_URL = "https://files.wwpdb.org/pub/pdb/data/monomers/components-pub.sdf.gz"
-
+DEFAULT_WORKDIR = "ccd_data"
 
 # ------------------------- HTTP utils -------------------------
 def make_session() -> requests.Session:
@@ -225,15 +220,8 @@ def parse_ccd_sdf_to_table(
     pandas.DataFrame
         If writing to disk, returns a small preview DataFrame (head of the written
         file). If not writing, returns the full in-memory table.
-
-    Raises
-    ------
-    RuntimeError
-        If RDKit is not available in the environment.
     """
-    if not RDKit_OK:
-        raise RuntimeError("RDKit is not available. Install with: pip install rdkit-pypi")
-
+    # RDKit is assumed available (hard dependency).
     suppl = Chem.SDMolSupplier(str(sdf_path), removeHs=False, sanitize=False)
     rows: List[dict] = []
     total = 0
@@ -335,81 +323,106 @@ def _append_or_write(
         df.to_csv(out_csv, mode="a" if out_csv.exists() else "w", index=False, header=header)
 
 
-# ------------------------- Main CLI -------------------------
-
-def main() -> None:
+def run_ccd_download_parse(
+    *,
+    url: str = DEFAULT_URL,
+    workdir: str | Path = DEFAULT_WORKDIR,
+    keep_gz: bool = False,
+    parse: bool = True,
+    out_parquet: Optional[str | Path] = None,
+    out_csv: Optional[str | Path] = None,
+    max_records: Optional[int] = None,
+    batch_size: int = 10000,
+    preview_rows: int = 20,
+) -> pd.DataFrame:
     """
-    Command-line entry point for downloading and parsing the CCD.
+    Download the PDB Chemical Component Dictionary (CCD), decompress it to SDF,
+    and optionally parse it into a table (InChIKey + chemcomp_id), exporting to Parquet/CSV.
 
-    Steps
-    -----
-    1. Download the gzipped SDF (resumable)
-    2. Decompress to ``.sdf``
-    3. Optionally parse and export to Parquet/CSV
+    Parameters
+    ----------
+    url : str, default=DEFAULT_URL
+        Source URL for the gzipped CCD SDF (`components-pub.sdf.gz`).
+    workdir : str or pathlib.Path, default="ccd_data"
+        Working directory where the `.gz` and `.sdf` files will be stored.
+    keep_gz : bool, default=False
+        If True, keep the downloaded `.gz` file after decompression.
+    parse : bool, default=True
+        If True, parse the SDF into a DataFrame (requires RDKit). If False, only download/decompress.
+    out_parquet : str or pathlib.Path or None, default=None
+        If provided, write the parsed table to this Parquet file (incremental batches).
+    out_csv : str or pathlib.Path or None, default=None
+        If provided, write the parsed table to this CSV file (incremental batches).
+    max_records : int or None, default=None
+        If set, stop parsing after this many molecules (useful for debugging).
+    batch_size : int, default=10000
+        Batch size for incremental writes during parsing.
+    preview_rows : int, default=20
+        Number of rows to return for preview when writing to disk (to avoid loading full output).
+
+    Returns
+    -------
+    pandas.DataFrame
+        If `parse=False`, returns an empty DataFrame (side-effect is the downloaded `.gz` and `.sdf`).
+        If `parse=True` and `out_parquet`/`out_csv` are provided, returns a **small preview** of the
+        written table (`preview_rows` rows). If no outputs are provided, returns the **full table** in memory.
 
     Notes
     -----
-    RDKit must be available to parse the SDF. If you only want to download and
-    decompress, use ``--only-download``.
+    - RDKit is a hard dependency for parsing (only needed when `parse=True`).
+    - Files written:
+        * ``{workdir}/components-pub.sdf.gz`` (downloaded)
+        * ``{workdir}/components-pub.sdf`` (decompressed)
+        * optional Parquet/CSV (if `out_parquet`/`out_csv` are set)
     """
-    ap = argparse.ArgumentParser(description="Download and parse the CCD (SDF) into a table.")
-    ap.add_argument("--url", default=DEFAULT_URL, help="URL for components-pub.sdf.gz")
-    ap.add_argument("--workdir", default="ccd_data", help="Working directory")
-    ap.add_argument("--keep-gz", action="store_true", help="Keep the .gz after decompressing")
-    ap.add_argument("--only-download", action="store_true", help="Only download and decompress; do not parse")
-    ap.add_argument("--out-parquet", type=str, default=None, help="Output Parquet path (e.g., ccd.parquet)")
-    ap.add_argument("--out-csv", type=str, default=None, help="Output CSV path (e.g., ccd.csv)")
-    ap.add_argument("--max-records", type=int, default=None, help="Limit parsing to N molecules (debug)")
-    ap.add_argument("--batch-size", type=int, default=10000, help="Batch size for incremental writes")
-    args = ap.parse_args()
-
-    workdir = Path(args.workdir)
+    workdir = Path(workdir)
     gz_path = workdir / "components-pub.sdf.gz"
     sdf_path = workdir / "components-pub.sdf"
 
+    # 1) Download (resumable)
     print("==> Downloading CCD (SDF.GZ)")
-    download_with_resume(args.url, gz_path)
+    download_with_resume(url, gz_path)
 
+    # 2) Decompress
     if not sdf_path.exists():
         print("==> Decompressing")
         gunzip_file(gz_path, sdf_path)
     else:
         print(f"[skip] {sdf_path} already exists")
 
-    if not args.keep_gz:
+    if not keep_gz:
         try:
             gz_path.unlink(missing_ok=True)
         except Exception:
             pass
 
-    if args.only_download:
-        print("[OK] Download ready.")
-        return
-
-    if not RDKit_OK:
-        print("ERROR: RDKit is not installed. Install with: pip install rdkit-pypi", file=sys.stderr)
-        sys.exit(1)
+    # 3) Optional parse & export
+    if not parse:
+        print("[OK] Download ready (parse=False).")
+        return pd.DataFrame()
 
     print("==> Parsing SDF into table")
-    out_parquet = Path(args.out_parquet) if args.out_parquet else None
-    out_csv = Path(args.out_csv) if args.out_csv else None
+    pq = Path(out_parquet) if out_parquet else None
+    cs = Path(out_csv) if out_csv else None
 
     df_preview = parse_ccd_sdf_to_table(
         sdf_path,
-        out_parquet=out_parquet,
-        out_csv=out_csv,
-        max_records=args.max_records,
-        batch_size=args.batch_size,
+        out_parquet=pq,
+        out_csv=cs,
+        max_records=max_records,
+        batch_size=batch_size,
     )
 
-    if out_parquet or out_csv:
-        print("[OK] Exported.")
+    # If writing to disk, return a small preview to avoid loading all rows back
+    if pq or cs:
         if not df_preview.empty:
-            print(df_preview.head(5).to_string(index=False))
-    else:
-        # If no outputs were requested, show a preview in stdout
-        print(df_preview.head(20).to_string(index=False))
+            return df_preview.head(preview_rows)
+        # If the writer returned empty (e.g., because everything went to disk), try to read a small sample
+        if pq and pq.exists():
+            return pd.read_parquet(pq).head(preview_rows)
+        if cs and cs.exists():
+            return pd.read_csv(cs, nrows=preview_rows)
+        return pd.DataFrame()
 
-
-if __name__ == "__main__":
-    main()
+    # No outputs requested: return full in-memory table
+    return df_preview

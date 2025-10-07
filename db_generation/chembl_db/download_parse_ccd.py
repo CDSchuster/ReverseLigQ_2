@@ -13,10 +13,6 @@ Download and parse the PDB Chemical Component Dictionary (CCD) into a table.
 Output columns:
   chemcomp_id | inchikey
 
-Usage:
-  python download_parse_ccd.py \
-    --out-parquet ccd.parquet \
-    --out-csv ccd.csv
 """
 
 from __future__ import annotations

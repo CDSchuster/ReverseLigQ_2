@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 """
 Download and parse the PDB Chemical Component Dictionary (CCD) into a table.
 
@@ -21,21 +22,18 @@ Usage:
 from __future__ import annotations
 
 import gzip
-from pathlib import Path
-from typing import Optional, List
-import time
-
 import os
 import sys
-
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from tqdm import tqdm
+import time
+from pathlib import Path
+from typing import List, Optional
 
 import pandas as pd
+import requests
+from requests.adapters import HTTPAdapter
+from tqdm import tqdm
+from urllib3.util.retry import Retry
 
-# RDKit is a hard requirement; if not installed, let ImportError surface.
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors  # noqa: F401 (kept for compatibility)
 

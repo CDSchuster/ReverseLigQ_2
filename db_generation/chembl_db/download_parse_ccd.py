@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
+import logging
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
@@ -41,6 +42,7 @@ SMILES_KEYS = [
 ]
 NAME_KEYS = ["name", "pdbx_synonyms", "pdbx_formal_charge", "pdbx_type"]
 FORMULA_KEYS = ["formula", "chem_comp.formula", "pdbx_formula"]
+log = logging.getLogger("generateDB_log")
 
 # ------------------------- HTTP utils -------------------------
 def make_session() -> requests.Session:
@@ -93,7 +95,7 @@ def download_with_resume(url: str, dst: Path, chunk_size: int = 1024 * 1024) -> 
     if head.ok and "Content-Length" in head.headers:
         try:
             total_size = int(head.headers["Content-Length"])  # type: ignore[assignment]
-        except Exception:
+        except (TypeError, ValueError, KeyError):
             total_size = None
 
     pos = 0
@@ -144,10 +146,7 @@ def gunzip_file(src_gz: Path, dst_sdf: Path) -> Path:
     with gzip.open(src_gz, "rb") as fin, open(dst_sdf, "wb") as fout, tqdm(
         unit="B", unit_scale=True, desc=f"Decompressing {src_gz.name}"
     ) as pbar:
-        while True:
-            chunk = fin.read(1024 * 1024)
-            if not chunk:
-                break
+        for chunk in iter(lambda: fin.read(1024 * 1024), b""):
             fout.write(chunk)
             pbar.update(len(chunk))
     return dst_sdf
@@ -171,12 +170,11 @@ def _get_first_prop(mol, keys: List[str]) -> Optional[str]:
     Optional[str]
         The first non-empty property value found, otherwise ``None``.
     """
+    v = None
     for k in keys:
         if mol.HasProp(k):
             v = mol.GetProp(k).strip()
-            if v:
-                return v
-    return None
+    return v
 
 
 def parse_ccd_sdf_to_table(
@@ -270,7 +268,7 @@ def parse_ccd_sdf_to_table(
     # If writing to disk by batches, return a brief preview to avoid reloading everything
     if out_parquet or out_csv:
         elapsed = time.time() - t0
-        print(f"[OK] Processed ~{total} molecules in {elapsed:.1f}s")
+        log.info(f"[OK] Processed ~{total} molecules in {elapsed:.1f}s")
         if out_parquet and out_parquet.exists():
             return pd.read_parquet(out_parquet).head(10)
         if out_csv and out_csv.exists():
@@ -369,15 +367,15 @@ def run_ccd_download_parse(
     sdf_path = workdir / "components-pub.sdf"
 
     # 1) Download (resumable)
-    print("==> Downloading CCD (SDF.GZ)")
+    log.info("==> Downloading CCD (SDF.GZ)")
     download_with_resume(url, gz_path)
 
     # 2) Decompress
     if not sdf_path.exists():
-        print("==> Decompressing")
+        log.info("==> Decompressing")
         gunzip_file(gz_path, sdf_path)
     else:
-        print(f"[skip] {sdf_path} already exists")
+        log.warning(f"[skip] {sdf_path} already exists")
 
     if not keep_gz:
         try:
@@ -387,10 +385,10 @@ def run_ccd_download_parse(
 
     # 3) Optional parse & export
     if not parse:
-        print("[OK] Download ready (parse=False).")
+        log.info("[OK] Download ready (parse=False).")
         return pd.DataFrame()
 
-    print("==> Parsing SDF into table")
+    log.info("==> Parsing SDF into table")
     pq = Path(out_parquet) if out_parquet else None
     cs = Path(out_csv) if out_csv else None
 

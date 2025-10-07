@@ -39,6 +39,12 @@ from rdkit.Chem import rdMolDescriptors  # noqa: F401 (kept for compatibility)
 
 DEFAULT_URL = "https://files.wwpdb.org/pub/pdb/data/monomers/components-pub.sdf.gz"
 DEFAULT_WORKDIR = "ccd_data"
+SMILES_KEYS = [
+    "SMILES", "smiles", "canonical_smiles", "cansmi", "CACTVS_TAUTO_PARENT_SMILES",
+    "cactvs_tauto_parent_smiles", "ccd_smiles"
+]
+NAME_KEYS = ["name", "pdbx_synonyms", "pdbx_formal_charge", "pdbx_type"]
+FORMULA_KEYS = ["formula", "chem_comp.formula", "pdbx_formula"]
 
 # ------------------------- HTTP utils -------------------------
 def make_session() -> requests.Session:
@@ -152,13 +158,6 @@ def gunzip_file(src_gz: Path, dst_sdf: Path) -> Path:
 
 
 # ------------------------- Parsing CCD (SDF) -------------------------
-SMILES_KEYS = [
-    "SMILES", "smiles", "canonical_smiles", "cansmi", "CACTVS_TAUTO_PARENT_SMILES",
-    "cactvs_tauto_parent_smiles", "ccd_smiles"
-]
-NAME_KEYS = ["name", "pdbx_synonyms", "pdbx_formal_charge", "pdbx_type"]
-FORMULA_KEYS = ["formula", "chem_comp.formula", "pdbx_formula"]
-
 
 def _get_first_prop(mol, keys: List[str]) -> Optional[str]:
     """

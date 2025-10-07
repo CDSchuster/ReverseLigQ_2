@@ -195,16 +195,13 @@ def parse_ccd_sdf_to_table(
     sdf_path : pathlib.Path
         Path to the ``.sdf`` file to parse.
     out_parquet : Optional[pathlib.Path], optional
-        Path to the Parquet output; if provided, results are incrementally written,
-        by default ``None``.
+        Path to the Parquet output; if provided, results are incrementally written.
     out_csv : Optional[pathlib.Path], optional
-        Path to the CSV output; if provided, results are incrementally written,
-        by default ``None``.
+        Path to the CSV output; if provided, results are incrementally written.
     max_records : Optional[int], optional
-        If set, stop after processing this many molecules (useful for debugging),
-        by default ``None``.
+        If set, stop after processing this many molecules (useful for debugging).
     batch_size : int, optional
-        Batch size for incremental writes, by default ``10000``.
+        Batch size for incremental writes (default: 10000).
 
     Returns
     -------
@@ -214,57 +211,82 @@ def parse_ccd_sdf_to_table(
     """
     # RDKit is assumed available (hard dependency).
     suppl = Chem.SDMolSupplier(str(sdf_path), removeHs=False, sanitize=False)
+
     rows: List[dict] = []
     total = 0
     t0 = time.time()
 
-    for mol in tqdm(suppl, desc="Parsing CCD (SDF)"):
-        if mol is not None:
+    # Determine an upper limit for the loop:
+    # - If max_records is provided, use it.
+    # - If not and the supplier supports len(), use len(suppl).
+    # - Otherwise, fall back to "infinite" (loop will stop at StopIteration).
+    if max_records is None:
+        try:
+            limit = len(suppl)  # may raise TypeError for some suppliers
+        except TypeError:
+            limit = float("inf")
+    else:
+        limit = max_records
 
-        # Component ID (usually in _Name)
-        chemcomp_id = mol.GetProp("_Name") if mol.HasProp("_Name") else None
-        # InChIKey (stable key for joins)
-        inchi_key = mol.GetProp("InChIKey") if mol.HasProp("InChIKey") else None
+    # Configure a progress bar that knows the total only when 'limit' is finite.
+    total_hint = None if limit == float("inf") else limit
 
-        # If no InChIKey, try to generate (best-effort, light sanitization)
-        if inchi_key is None:
+    with tqdm(total=total_hint, desc="Parsing CCD (SDF)") as pbar:
+        while total < limit:
+            # Pull next molecule; stop on natural end of stream.
             try:
-                m2 = Chem.Mol(mol)
-                Chem.SanitizeMol(
-                    m2,
-                    Chem.SanitizeFlags.SANITIZE_KEKULIZE
-                    | Chem.SanitizeFlags.SANITIZE_SETAROMATICITY
-                    | Chem.SanitizeFlags.SANITIZE_SETCONJUGATION,
-                    catchErrors=True,
-                )
-                inchi = Chem.MolToInchi(m2)  # requires RDKit built with InChI support
-                inchi_key = Chem.InchiToInchiKey(inchi) if inchi else None
-            except (TypeError, ValueError, KeyError):
-                pass
+                mol = next(suppl)
+            except StopIteration:
+                break
 
-        rows.append(
-            {
-                "chemcomp_id": (chemcomp_id or "").strip() or None,
-                "inchikey": (inchi_key or "").strip().upper() or None,
-            }
-        )
-        total += 1
+            if mol is None:
+                # Skip invalid/failed parses without incrementing counters.
+                continue
 
-        if max_records and total >= max_records:
-            break
+            # Component ID (usually in _Name)
+            chemcomp_id = mol.GetProp("_Name") if mol.HasProp("_Name") else None
+            # InChIKey (stable key for joins)
+            inchi_key = mol.GetProp("InChIKey") if mol.HasProp("InChIKey") else None
 
-        # Flush in batches to constrain memory
-        if len(rows) >= batch_size:
-            df_batch = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
-            _append_or_write(df_batch, out_parquet, out_csv, mode="a")
-            rows = []
+            # If no InChIKey, try to generate one (best-effort, light sanitization).
+            if inchi_key is None:
+                try:
+                    m2 = Chem.Mol(mol)
+                    Chem.SanitizeMol(
+                        m2,
+                        Chem.SanitizeFlags.SANITIZE_KEKULIZE
+                        | Chem.SanitizeFlags.SANITIZE_SETAROMATICITY
+                        | Chem.SanitizeFlags.SANITIZE_SETCONJUGATION,
+                        catchErrors=True,
+                    )
+                    inchi = Chem.MolToInchi(m2)  # requires RDKit built with InChI support
+                    inchi_key = Chem.InchiToInchiKey(inchi) if inchi else None
+                except (TypeError, ValueError, KeyError):
+                    # Keep going if InChI generation fails for this record.
+                    pass
 
-    # Final batch
+            rows.append(
+                {
+                    "chemcomp_id": (chemcomp_id or "").strip() or None,
+                    "inchikey": (inchi_key or "").strip().upper() or None,
+                }
+            )
+
+            total += 1
+            pbar.update(1)
+
+            # Flush in batches to constrain memory footprint.
+            if len(rows) >= batch_size:
+                df_batch = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
+                _append_or_write(df_batch, out_parquet, out_csv, mode="a")
+                rows = []
+
+    # Flush remaining rows (final batch).
     if rows:
         df_batch = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
         _append_or_write(df_batch, out_parquet, out_csv, mode="a")
 
-    # If writing to disk by batches, return a brief preview to avoid reloading everything
+    # If writing to disk by batches, return a brief preview to avoid reloading everything.
     if out_parquet or out_csv:
         elapsed = time.time() - t0
         log.info(f"[OK] Processed ~{total} molecules in {elapsed:.1f}s")
@@ -274,9 +296,10 @@ def parse_ccd_sdf_to_table(
             return pd.read_csv(out_csv, nrows=10)
         return pd.DataFrame()
 
-    # If not writing to disk, return the full DataFrame in memory
+    # If not writing to disk, return the full in-memory table.
     df = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
     return df
+
 
 
 def _append_or_write(

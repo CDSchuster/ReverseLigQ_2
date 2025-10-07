@@ -239,7 +239,7 @@ def parse_ccd_sdf_to_table(
                 )
                 inchi = Chem.MolToInchi(m2)  # requires RDKit built with InChI support
                 inchi_key = Chem.InchiToInchiKey(inchi) if inchi else None
-            except Exception:
+            except (TypeError, ValueError, KeyError):
                 pass
 
         rows.append(

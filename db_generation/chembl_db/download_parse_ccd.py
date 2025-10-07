@@ -326,7 +326,6 @@ def run_ccd_download_parse(
     out_csv: Optional[str | Path] = None,
     max_records: Optional[int] = None,
     batch_size: int = 10000,
-    preview_rows: int = 20,
 ) -> pd.DataFrame:
     """
     Download the PDB Chemical Component Dictionary (CCD), decompress it to SDF,
@@ -350,15 +349,12 @@ def run_ccd_download_parse(
         If set, stop parsing after this many molecules (useful for debugging).
     batch_size : int, default=10000
         Batch size for incremental writes during parsing.
-    preview_rows : int, default=20
-        Number of rows to return for preview when writing to disk (to avoid loading full output).
 
     Returns
     -------
     pandas.DataFrame
         If `parse=False`, returns an empty DataFrame (side-effect is the downloaded `.gz` and `.sdf`).
-        If `parse=True` and `out_parquet`/`out_csv` are provided, returns a **small preview** of the
-        written table (`preview_rows` rows). If no outputs are provided, returns the **full table** in memory.
+        If `parse=True`, returns the **full table** in memory.
 
     Notes
     -----

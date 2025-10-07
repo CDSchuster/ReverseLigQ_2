@@ -219,8 +219,7 @@ def parse_ccd_sdf_to_table(
     t0 = time.time()
 
     for mol in tqdm(suppl, desc="Parsing CCD (SDF)"):
-        if mol is None:
-            continue
+        if mol is not None:
 
         # Component ID (usually in _Name)
         chemcomp_id = mol.GetProp("_Name") if mol.HasProp("_Name") else None

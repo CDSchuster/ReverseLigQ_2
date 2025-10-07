@@ -273,28 +273,20 @@ def generate_DFs(subset_pdb_ids, ligand_results):
     for pdb_id in subset_pdb_ids:
         urls = ligand_results.get(pdb_id, {})
 
-        try:
-            # Build rows for ligand_df from ligand_url results
-            new_bmid_rows = get_bmids_rows(pdb_id, urls.get("ligand_url", []))
-            ligand_df = pd.concat([ligand_df,
-                                   pd.DataFrame(new_bmid_rows,
-                                                columns=ligand_df.columns)],
-                                  ignore_index=True)
-        except Exception:
-            # If anything goes wrong while parsing ligand data, log it
-            log.error(f"No ligand data for {pdb_id}")
+        # Build rows for ligand_df from ligand_url results
+        new_bmid_rows = get_bmids_rows(pdb_id, urls.get("ligand_url", []))
+        ligand_df = pd.concat([ligand_df,
+                               pd.DataFrame(new_bmid_rows,
+                                            columns=ligand_df.columns)],
+                                            ignore_index=True)
 
-        try:
-            # Build rows for pfam_df from Pfam_url results
-            new_pfam_rows = get_pfam_rows(pdb_id, urls.get("Pfam_url", {}))
-            pfam_df = pd.concat([pfam_df,
-                                 pd.DataFrame(new_pfam_rows,
-                                              columns=pfam_df.columns)],
-                                ignore_index=True)
-        except Exception:
-            # If parsing Pfam data fails, log the issue
-            log.error(f"No Pfam domains for {pdb_id}")
-
+        # Build rows for pfam_df from Pfam_url results
+        new_pfam_rows = get_pfam_rows(pdb_id, urls.get("Pfam_url", {}))
+        pfam_df = pd.concat([pfam_df,
+                             pd.DataFrame(new_pfam_rows,
+                                          columns=pfam_df.columns)],
+                                          ignore_index=True)
+        
     return ligand_df, pfam_df
 
 
@@ -304,11 +296,10 @@ def parallelize_DFs_generation(pdb_ids, ligand_results):
 
     Parameters
     ----------
-    subset_pdb_ids : list
+    pdb_ids : list
         a list of PDB IDs
     ligand_results : dict
         a dictionary containing Pfam and ligand data for every PDB ID
-    pdb_ids :
 
     Returns
     -------
@@ -546,6 +537,7 @@ def get_ligand_pfam_data():
 
     log.info("Retrieving PDB IDs with bound molecules")
     pdb_ids = get_pdb_ids()
+    
     log.info(f"Total PDB IDs: {len(pdb_ids)}")
     log.info("Requesting ligand and Pfam data")
 

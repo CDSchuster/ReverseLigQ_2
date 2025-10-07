@@ -16,5 +16,3 @@
 ## FORMAT
 
 ## BUGS
-
-* When getting interactions data from PDB, if no data needs recovery, the function `parallelize_interactions_request()` fails, because it sets max_workers in 0 (since there are 0 tasks to be done)

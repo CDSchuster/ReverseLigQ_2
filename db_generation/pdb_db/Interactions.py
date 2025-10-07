@@ -85,7 +85,7 @@ def parallelize_interactions_request(pdb_bm_tuples):
         (pdb_id, bm, url_template.format(pdb_id=pdb_id, bm=bm))
         for pdb_id, bm in pdb_bm_tuples
     ]
-    print(tasks)
+    
     # Use up to 500 threads, but not more than number of tasks
     max_workers = min(500, len(tasks))
 
@@ -184,32 +184,34 @@ def get_interaction_data(ligand_df):
     interactions_df = interactions_to_df(interact_dict)
 
     # Retry failed cases
-    log.info("Retrying %d recoverable fails", len(recoverable_fails))
-    recovered_dict, recoverable_fails = parallelize_interactions_request(
-        recoverable_fails
-    )
+    if len(recoverable_fails) > 0:
+        
+        log.info("Retrying %d recoverable fails", len(recoverable_fails))
+        recovered_dict, recoverable_fails = parallelize_interactions_request(
+            recoverable_fails
+        )
 
-    # Save unrecovered failures to file for inspection
-    with open("non_recovered_fails.txt", "w", encoding="utf-8") as f:
-        for item in recoverable_fails:
-            f.write(f"{item[0]}\t{item[1]}\n")
+        # Save unrecovered failures to file for inspection
+        with open("non_recovered_fails.txt", "w", encoding="utf-8") as f:
+            for item in recoverable_fails:
+                f.write(f"{item[0]}\t{item[1]}\n")
 
-    log.info("Converting recovered interactions data to dataframe")
-    recovered_df = interactions_to_df(recovered_dict)
-    # Count unique recovered pairs
-    recovered_num = (
-        recovered_df[["pdb_id", "bm_id"]].drop_duplicates().shape[0]
-    )
-    log.info(
-        "Recovered %d pairs of PDB and bound molecule interactions",
-        recovered_num,
-    )
+        log.info("Converting recovered interactions data to dataframe")
+        recovered_df = interactions_to_df(recovered_dict)
+        # Count unique recovered pairs
+        recovered_num = (
+            recovered_df[["pdb_id", "bm_id"]].drop_duplicates().shape[0]
+        )
+        log.info(
+            "Recovered %d pairs of PDB and bound molecule interactions",
+            recovered_num,
+        )
 
-    # Merge recovered data into main dataframe
-    interactions_df = pd.concat(
-        [interactions_df, recovered_df],
-        ignore_index=True,
-    )
+        # Merge recovered data into main dataframe
+        interactions_df = pd.concat(
+            [interactions_df, recovered_df],
+            ignore_index=True,
+        )
 
     # Keep only rows where residue is a standard amino acid
     log.info("Filter out interactions with non-residue molecules")

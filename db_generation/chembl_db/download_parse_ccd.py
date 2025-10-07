@@ -406,16 +406,4 @@ def run_ccd_download_parse(
         batch_size=batch_size,
     )
 
-    # If writing to disk, return a small preview to avoid loading all rows back
-    if pq or cs:
-        if not df_preview.empty:
-            return df_preview.head(preview_rows)
-        # If the writer returned empty (e.g., because everything went to disk), try to read a small sample
-        if pq and pq.exists():
-            return pd.read_parquet(pq).head(preview_rows)
-        if cs and cs.exists():
-            return pd.read_csv(cs, nrows=preview_rows)
-        return pd.DataFrame()
-
-    # No outputs requested: return full in-memory table
     return df_preview

@@ -537,8 +537,7 @@ def get_ligand_pfam_data():
 
     log.info("Retrieving PDB IDs with bound molecules")
     pdb_ids = get_pdb_ids()
-    import random
-    pdb_ids = random.sample(pdb_ids, 50)  # For testing purposes only
+    
     log.info(f"Total PDB IDs: {len(pdb_ids)}")
     log.info("Requesting ligand and Pfam data")
 

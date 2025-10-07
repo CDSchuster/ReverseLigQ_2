@@ -388,11 +388,8 @@ def run_ccd_download_parse(
     else:
         log.warning(f"[skip] {sdf_path} already exists")
 
-    if not keep_gz:
-        try:
-            gz_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+    if not keep_gz and gz_path.exists():
+        gz_path.unlink()
 
     # 3) Optional parse & export
     if not parse:

@@ -7,10 +7,10 @@ from db_generation import generate_db
 
 def main():
     parser = argparse.ArgumentParser(description="A sample script.")
-    parser.add_argument('-arg1', type=str, help="Argument 1")
+    parser.add_argument('-chembl_db', type=str, help="Path of ChEMBL database (sqlite)")
     parser.add_argument('-arg2', type=str, help="Argument 2")
     args = parser.parse_args()
-    generate_db.run_database_generation()
+    generate_db.run_database_generation(args.chembl_db)
 
  
 if __name__ == "__main__":

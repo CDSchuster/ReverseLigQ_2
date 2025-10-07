@@ -206,8 +206,7 @@ def parse_ccd_sdf_to_table(
     Returns
     -------
     pandas.DataFrame
-        If writing to disk, returns a small preview DataFrame (head of the written
-        file). If not writing, returns the full in-memory table.
+
     """
     # RDKit is assumed available (hard dependency).
     suppl = Chem.SDMolSupplier(str(sdf_path), removeHs=False, sanitize=False)
@@ -285,16 +284,6 @@ def parse_ccd_sdf_to_table(
     if rows:
         df_batch = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
         _append_or_write(df_batch, out_parquet, out_csv, mode="a")
-
-    # If writing to disk by batches, return a brief preview to avoid reloading everything.
-    if out_parquet or out_csv:
-        elapsed = time.time() - t0
-        log.info(f"[OK] Processed ~{total} molecules in {elapsed:.1f}s")
-        if out_parquet and out_parquet.exists():
-            return pd.read_parquet(out_parquet).head(10)
-        if out_csv and out_csv.exists():
-            return pd.read_csv(out_csv, nrows=10)
-        return pd.DataFrame()
 
     # If not writing to disk, return the full in-memory table.
     df = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()

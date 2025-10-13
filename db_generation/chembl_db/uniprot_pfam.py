@@ -12,21 +12,17 @@ mapping_to_dataframe(mapping) -> pandas.DataFrame   (optional)
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Callable, List, Optional, Set, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
+
+import logging
 import requests
 
-# Usa la variante "auto" para que funcione bien en Jupyter y en terminal
-try:
-    from tqdm.auto import tqdm
-except Exception:  # fallback mínimo
-    def tqdm(iterable=None, total=None, desc=None, unit=None, disable=False):
-        return iterable if iterable is not None else range(total or 0)
 
 UNIPROT_ENTRY_URL = "https://rest.uniprot.org/uniprotkb/{acc}.json"
 HEADERS = {"Accept": "application/json", "User-Agent": "uniprot_pfam_min/1.1"}
-
+log = logging.getLogger("generateDB_log")
 
 def _norm_ids(ids: Iterable[str]) -> List[str]:
     """
@@ -42,14 +38,13 @@ def _norm_ids(ids: Iterable[str]) -> List[str]:
     list of str
         Normalized accessions (unique, uppercased, in first-seen order).
     """
-    seen, out = set(), []
+
+    out = []
     for x in ids:
-        if not x:
-            continue
-        acc = str(x).strip().upper()
-        if acc and acc not in seen:
-            seen.add(acc)
-            out.append(acc)
+        if x:
+          acc = str(x).strip().upper()
+          if acc and acc not in out:
+              out.append(acc)
     return out
 
 
@@ -78,140 +73,146 @@ def _extract_pfam_from_json(data: dict) -> Set[str]:
 
 def _fetch_one(acc: str, *, timeout: int, max_retries: int) -> Tuple[str, Set[str]]:
     """
-    Retrieve Pfam IDs for a single UniProt accession with gentle backoff.
+    Retrieve Pfam IDs for a single UniProt accession with controlled retries and exponential backoff.
 
     Parameters
     ----------
     acc : str
-        The UniProt accession to query.
+        UniProt accession identifier to query.
     timeout : int
         Per-request timeout in seconds.
     max_retries : int
-        Maximum number of retry attempts on transient errors or rate limits.
+        Maximum number of retry attempts on transient HTTP errors or rate limits.
 
     Returns
     -------
-    (str, set of str)
-        Tuple ``(acc, pfam_ids)`` where ``pfam_ids`` is possibly empty.
+    Tuple[str, Set[str]]
+        A tuple ``(acc, pfam_ids)`` where ``pfam_ids`` is a possibly empty set of Pfam identifiers.
 
     Notes
     -----
-    - HTTP 404 yields an empty set (unknown accession).
-    - HTTP 429/502/503/504 trigger exponential backoff (honoring `Retry-After` if present).
-    - On final failure, returns an empty set for that accession.
+    - HTTP 404 returns an empty set (unknown or deprecated accession).
+    - HTTP 429, 502, 503, and 504 trigger exponential backoff (honoring `Retry-After` header if present).
+    - If all retries fail, an empty set is returned for that accession.
     """
-    attempt = 0
+
+    result = set()  # default return value (empty set)
+    success = False  # flag to know if we got data
+
     with requests.Session() as sess:
         sess.headers.update(HEADERS)
         url = UNIPROT_ENTRY_URL.format(acc=acc)
-        while True:
-            attempt += 1
+
+        for attempt in range(1, max_retries + 1):
             try:
                 r = sess.get(url, timeout=timeout)
-                if r.status_code == 404:
-                    return acc, set()
-                if r.status_code in (429, 502, 503, 504):
-                    ra = r.headers.get("Retry-After")
-                    wait_s = int(ra) if ra and str(ra).isdigit() else min(2 ** attempt, 30)
-                    if attempt <= max_retries:
-                        time.sleep(wait_s)
-                        continue
-                r.raise_for_status()
-                return acc, _extract_pfam_from_json(r.json())
-            except requests.RequestException:
-                if attempt <= max_retries:
-                    time.sleep(min(2 ** attempt, 30))
-                    continue
-                return acc, set()  # last resort: empty and move on
+                status = r.status_code
 
+                # Not found → no retries, just stop trying
+                if status == 404:
+                    success = True  # we "succeeded" in knowing it doesn't exist
+                    result = set()
+                
+                # Temporary errors → retry after waiting
+                elif status in (429, 502, 503, 504):
+                    retry_after = r.headers.get("Retry-After")
+                    wait_s = int(retry_after) if retry_after and retry_after.isdigit() else min(2 ** attempt, 30)
+                    if attempt < max_retries:
+                        time.sleep(wait_s)
+                    # no need to change success yet, will retry
+                
+                # Success
+                elif 200 <= status < 300:
+                    result = _extract_pfam_from_json(r.json())
+                    success = True
+
+                # Any other error → stop trying
+                else:
+                    success = True
+
+            except requests.RequestException:
+                # Network or timeout error
+                if attempt < max_retries:
+                    time.sleep(min(2 ** attempt, 30))
+                else:
+                    success = True  # final failure
+
+            # if we already finished (any of the cases above)
+            if success:
+                # stop looping without break
+                attempt = max_retries
+
+    return result
 
 def get_pfam_for_uniprot_ids(
     ids: Iterable[str],
     *,
     timeout: int = 30,
-    max_workers: int = 1,   # 1 = sequential (identical to the original behavior)
+    max_workers: int = 1,   # 1 = sequential
     max_retries: int = 3,
-    show_progress: bool = True,
-    progress_callback: Optional[Callable[[int, int, float, Optional[float]], None]] = None,
 ) -> Dict[str, Set[str]]:
     """
-    Fetch Pfam IDs for a list of UniProt accessions, with optional progress/ETA reporting.
+    Fetch Pfam IDs for a list of UniProt accessions, with logging-based progress reporting.
 
-    Performs either sequential or threaded requests depending on ``max_workers``.
-    Optionally displays a progress bar (tqdm) and/or calls a user-supplied callback
-    with progress metrics after each accession is processed.
+    Depending on ``max_workers``, requests run sequentially (``max_workers=1``)
+    or concurrently using a thread pool (``max_workers>1``).
 
     Parameters
     ----------
     ids : Iterable[str]
         UniProt accessions to query.
     timeout : int, optional
-        Per-request timeout in seconds, by default 30.
+        Per-request timeout in seconds (default: 30).
     max_workers : int, optional
-        Number of worker threads (``1`` = sequential), by default 1. Values in the
-        16–32 range usually work well for 2k–5k IDs, but adjust based on your limits.
+        Number of worker threads (1 = sequential). Increase for concurrency (default: 1).
     max_retries : int, optional
-        Maximum number of retry attempts for transient failures, by default 3.
-    show_progress : bool, optional
-        If True, show a tqdm progress bar (works in notebooks and terminals), by default True.
-    progress_callback : Callable[[int, int, float, Optional[float]], None], optional
-        A function called after each processed accession with:
-        ``(processed, total, elapsed_seconds, eta_seconds)``. ``eta_seconds`` may be None
-        when ``processed == 0``.
+        Maximum number of retry attempts for transient failures (default: 3).
 
     Returns
     -------
     Dict[str, Set[str]]
-        Mapping ``{accession -> {PFxxxxx, ...}}``; empty set if none/failure.
+        Mapping ``{accession -> {PFxxxxx, ...}}``; empty set if none or on failure.
 
     Notes
     -----
-    - ETA is a rough estimate: it assumes the remaining items will take similar time.
-    - ``progress_callback`` is useful if you want to log to your UI/logger in addition
-      to (or instead of) showing the progress bar.
+    - Uses the standard Python ``logging`` module for progress messages.
+    - Concurrency is I/O-bound; using multiple threads can reduce total time.
     """
     accs = _norm_ids(ids)
     total = len(accs)
     mapping: Dict[str, Set[str]] = {a: set() for a in accs}
     if total == 0:
+        log.info("No UniProt accessions provided.")
         return mapping
 
-    processed = 0
-    t0 = time.monotonic()
-
-    def _update_progress(pbar):
-        nonlocal processed
-        processed += 1
-        elapsed = time.monotonic() - t0
-        eta = (elapsed * (total - processed) / processed) if processed > 0 else None
-        if pbar is not None:
-            pbar.update(1)
-            pbar.set_postfix_str(f"{processed}/{total}")
-        if progress_callback is not None:
-            progress_callback(processed, total, elapsed, eta)
-
-    pbar = tqdm(total=total, desc="Fetching UniProt→Pfam", unit="acc", disable=not show_progress)
+    log.info("Starting UniProt→Pfam retrieval for %d accessions (max_workers=%d)", total, max_workers)
 
     if max_workers <= 1:
         # Sequential mode
-        for acc in accs:
-            _, pfset = _fetch_one(acc, timeout=timeout, max_retries=max_retries)
+        for i, acc in enumerate(accs, start=1):
+            pfset = _fetch_one(acc, timeout=timeout, max_retries=max_retries)
             mapping[acc] = pfset
-            _update_progress(pbar)
-        if pbar is not None:
-            pbar.close()
-        return mapping
+            log.info("[%d/%d] %s → %d Pfam IDs", i, total, acc, len(pfset))
+    else:
+        # Parallel mode
+        with ThreadPoolExecutor(max_workers=max_workers) as ex:
+            future_to_acc = {
+                ex.submit(_fetch_one, acc, timeout=timeout, max_retries=max_retries): acc
+                for acc in accs
+            }
+            completed = 0
+            for fut in as_completed(future_to_acc):
+                acc = future_to_acc[fut]
+                try:
+                    pfset = fut.result()
+                except Exception as e:
+                    log.warning("Error retrieving %s: %s", acc, e)
+                    pfset = set()
+                mapping[acc] = pfset
+                completed += 1
+                log.info("[%d/%d] %s → %d Pfam IDs", completed, total, acc, len(pfset))
 
-    # Parallel mode
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = [ex.submit(_fetch_one, acc, timeout=timeout, max_retries=max_retries) for acc in accs]
-        for fut in as_completed(futures):
-            acc, pfset = fut.result()
-            mapping[acc] = pfset
-            _update_progress(pbar)
-
-    if pbar is not None:
-        pbar.close()
+    log.info("Completed UniProt→Pfam retrieval for %d accessions.", total)
     return mapping
 
 

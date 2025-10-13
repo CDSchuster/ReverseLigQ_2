@@ -278,8 +278,6 @@ def add_pfam_ids_by_uniprot(results: pd.DataFrame, *, max_workers: int, timeout:
         max_workers=max_workers,
         timeout=timeout,
         max_retries=retries,
-        show_progress=False,              # suppress tqdm visual
-        progress_callback=on_progress,    # push progress to logs
     )
     mapping_df = up.mapping_to_dataframe(mapping)
 

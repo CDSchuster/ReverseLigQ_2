@@ -410,44 +410,44 @@ def run_chembl_db_pipeline(
     return 0
 # ========================== CLI (Temporal for testing) ==========================
 
-def parse_args() -> argparse.Namespace:
-    """
-    Parse command-line arguments for the pipeline.
-
-    Returns
-    -------
-    argparse.Namespace
-        Parsed arguments used by `main`.
-    """
-    ap = argparse.ArgumentParser(description="""Run ChEMBL→CCD→Pfam pipeline (logged) and export CSV. This pipeline requires a local ChEMBL SQLite database (downloadable from:
-    https://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/latest/)""")
-    ap.add_argument("--chembl-sqlite", required=True, help="Path to chembl_XX.db (SQLite)")
-    ap.add_argument("--ccd-script", default="download_parse_ccd.py", help="Path to download_parse_ccd.py (default: download_parse_ccd.py)")
-    ap.add_argument("--workdir", default="temp", help="Working directory for CCD step (default: temp)")
-    ap.add_argument("--ccd-csv", default="temp/ccd.csv", help="CCD CSV output (default: temp/ccd.csv)")
-    ap.add_argument("--out-csv", default="chembl_db.csv", help="Final CSV output (default: chembl_db.csv)")
-    ap.add_argument("--skip-ccd", action="store_true", help="Skip running the CCD script (assumes --ccd-csv exists)")
-    ap.add_argument("--drop-missing-pdb", action="store_true", help="Drop rows with NaN in pdb_id after CCD merge")
-    ap.add_argument("--pfam-workers", type=int, default=24, help="Threads for UniProt Pfam step (default: 24)")
-    ap.add_argument("--pfam-timeout", type=int, default=45, help="Per-request timeout seconds (default: 45)")
-    ap.add_argument("--pfam-retries", type=int, default=3, help="Max retries for UniProt calls (default: 3)")
-    ap.add_argument("--no-console", action="store_true", help="Do not echo logs to console (file only)")
-    return ap.parse_args()
-
-
-def main() -> int:
-    """
-    Temporal for testing the pipeline.
-    Run the complete pipeline according to CLI arguments with structured logging.
-
-    Returns
-    -------
-    int
-        Zero on success; non-zero if any step fails.
-    """
-    args = parse_args()
-    return run_chembl_db_pipeline(**vars(args))
+#def parse_args() -> argparse.Namespace:
+#    """
+#    Parse command-line arguments for the pipeline.
+#
+#    Returns
+#    -------
+#    argparse.Namespace
+#        Parsed arguments used by `main`.
+#    """
+#    ap = argparse.ArgumentParser(description="""Run ChEMBL→CCD→Pfam pipeline (logged) and export CSV. This pipeline requires a local ChEMBL SQLite database (downloadable from:
+#    https://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/latest/)""")
+#    ap.add_argument("--chembl-sqlite", required=True, help="Path to chembl_XX.db (SQLite)")
+#    ap.add_argument("--ccd-script", default="download_parse_ccd.py", help="Path to download_parse_ccd.py (default: download_parse_ccd.py)")
+#    ap.add_argument("--workdir", default="temp", help="Working directory for CCD step (default: temp)")
+#    ap.add_argument("--ccd-csv", default="temp/ccd.csv", help="CCD CSV output (default: temp/ccd.csv)")
+#    ap.add_argument("--out-csv", default="chembl_db.csv", help="Final CSV output (default: chembl_db.csv)")
+#    ap.add_argument("--skip-ccd", action="store_true", help="Skip running the CCD script (assumes --ccd-csv exists)")
+#    ap.add_argument("--drop-missing-pdb", action="store_true", help="Drop rows with NaN in pdb_id after CCD merge")
+#    ap.add_argument("--pfam-workers", type=int, default=24, help="Threads for UniProt Pfam step (default: 24)")
+#    ap.add_argument("--pfam-timeout", type=int, default=45, help="Per-request timeout seconds (default: 45)")
+#    ap.add_argument("--pfam-retries", type=int, default=3, help="Max retries for UniProt calls (default: 3)")
+#    ap.add_argument("--no-console", action="store_true", help="Do not echo logs to console (file only)")
+#    return ap.parse_args()
 
 
-if __name__ == "__main__":
-    main()
+#def main() -> int:
+#    """
+#    Temporal for testing the pipeline.
+#    Run the complete pipeline according to CLI arguments with structured logging.
+#
+#    Returns
+#    -------
+#    int
+#        Zero on success; non-zero if any step fails.
+#    """
+#    args = parse_args()
+#    return run_chembl_db_pipeline(**vars(args))
+#
+#
+#if __name__ == "__main__":
+#    main()

@@ -28,7 +28,6 @@ import logging
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter
-from tqdm import tqdm
 from urllib3.util.retry import Retry
 
 from rdkit import Chem
@@ -89,12 +88,12 @@ def download_with_resume(url: str, dst: Path, chunk_size: int = 1024 * 1024) -> 
     sess = make_session()
     temp = dst.with_suffix(dst.suffix + ".part")
 
-    # (Optional) probe remote size
+    # (Opcional) probamos obtener el tamaño remoto, pero no lo usamos si no hay tqdm
     head = sess.head(url, timeout=30)
     total_size = None
     if head.ok and "Content-Length" in head.headers:
         try:
-            total_size = int(head.headers["Content-Length"])  # type: ignore[assignment]
+            total_size = int(head.headers["Content-Length"])
         except (TypeError, ValueError, KeyError):
             total_size = None
 
@@ -109,17 +108,10 @@ def download_with_resume(url: str, dst: Path, chunk_size: int = 1024 * 1024) -> 
     with sess.get(url, stream=True, headers=headers, timeout=60) as r:
         r.raise_for_status()
         mode = "ab" if pos > 0 else "wb"
-        with open(temp, mode) as f, tqdm(
-            total=total_size if total_size else None,
-            initial=pos,
-            unit="B",
-            unit_scale=True,
-            desc=f"Downloading {dst.name}"
-        ) as pbar:
+        with open(temp, mode) as f:
             for chunk in r.iter_content(chunk_size=chunk_size):
                 if chunk:
                     f.write(chunk)
-                    pbar.update(len(chunk))
 
     temp.rename(dst)
     return dst
@@ -230,55 +222,53 @@ def parse_ccd_sdf_to_table(
     # Configure a progress bar that knows the total only when 'limit' is finite.
     total_hint = None if limit == float("inf") else limit
 
-    with tqdm(total=total_hint, desc="Parsing CCD (SDF)") as pbar:
-        while total < limit:
-            # Pull next molecule; stop on natural end of stream.
+    while total < limit:
+        # Pull next molecule; stop on natural end of stream.
+        try:
+            mol = next(suppl)
+        except StopIteration:
+            break
+
+        if mol is None:
+            # Skip invalid/failed parses without incrementing counters.
+            continue
+
+        # Component ID (usually in _Name)
+        chemcomp_id = mol.GetProp("_Name") if mol.HasProp("_Name") else None
+        # InChIKey (stable key for joins)
+        inchi_key = mol.GetProp("InChIKey") if mol.HasProp("InChIKey") else None
+
+        # If no InChIKey, try to generate one (best-effort, light sanitization).
+        if inchi_key is None:
             try:
-                mol = next(suppl)
-            except StopIteration:
-                break
+                m2 = Chem.Mol(mol)
+                Chem.SanitizeMol(
+                    m2,
+                    Chem.SanitizeFlags.SANITIZE_KEKULIZE
+                    | Chem.SanitizeFlags.SANITIZE_SETAROMATICITY
+                    | Chem.SanitizeFlags.SANITIZE_SETCONJUGATION,
+                    catchErrors=True,
+                )
+                inchi = Chem.MolToInchi(m2)  # requires RDKit built with InChI support
+                inchi_key = Chem.InchiToInchiKey(inchi) if inchi else None
+            except (TypeError, ValueError, KeyError):
+                # Keep going if InChI generation fails for this record.
+                pass
 
-            if mol is None:
-                # Skip invalid/failed parses without incrementing counters.
-                continue
+        rows.append(
+            {
+                "chemcomp_id": (chemcomp_id or "").strip() or None,
+                "inchikey": (inchi_key or "").strip().upper() or None,
+            }
+        )
 
-            # Component ID (usually in _Name)
-            chemcomp_id = mol.GetProp("_Name") if mol.HasProp("_Name") else None
-            # InChIKey (stable key for joins)
-            inchi_key = mol.GetProp("InChIKey") if mol.HasProp("InChIKey") else None
-
-            # If no InChIKey, try to generate one (best-effort, light sanitization).
-            if inchi_key is None:
-                try:
-                    m2 = Chem.Mol(mol)
-                    Chem.SanitizeMol(
-                        m2,
-                        Chem.SanitizeFlags.SANITIZE_KEKULIZE
-                        | Chem.SanitizeFlags.SANITIZE_SETAROMATICITY
-                        | Chem.SanitizeFlags.SANITIZE_SETCONJUGATION,
-                        catchErrors=True,
-                    )
-                    inchi = Chem.MolToInchi(m2)  # requires RDKit built with InChI support
-                    inchi_key = Chem.InchiToInchiKey(inchi) if inchi else None
-                except (TypeError, ValueError, KeyError):
-                    # Keep going if InChI generation fails for this record.
-                    pass
-
-            rows.append(
-                {
-                    "chemcomp_id": (chemcomp_id or "").strip() or None,
-                    "inchikey": (inchi_key or "").strip().upper() or None,
-                }
-            )
-
-            total += 1
-            pbar.update(1)
+        total += 1
 
             # Flush in batches to constrain memory footprint.
-            if len(rows) >= batch_size:
-                df_batch = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
-                _append_or_write(df_batch, out_parquet, out_csv, mode="a")
-                rows = []
+        if len(rows) >= batch_size:
+            df_batch = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
+            _append_or_write(df_batch, out_parquet, out_csv, mode="a")
+            rows = []
 
     # Flush remaining rows (final batch).
     if rows:

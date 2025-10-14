@@ -41,6 +41,8 @@ SMILES_KEYS = [
 ]
 NAME_KEYS = ["name", "pdbx_synonyms", "pdbx_formal_charge", "pdbx_type"]
 FORMULA_KEYS = ["formula", "chem_comp.formula", "pdbx_formula"]
+
+
 log = logging.getLogger("generateDB_log")
 
 # ------------------------- HTTP utils -------------------------
@@ -53,6 +55,7 @@ def make_session() -> requests.Session:
     requests.Session
         A configured session with exponential backoff and a custom User-Agent.
     """
+
     s = requests.Session()
     retry = Retry(
         total=5,
@@ -84,17 +87,19 @@ def download_with_resume(url: str, dst: Path, chunk_size: int = 1024 * 1024) -> 
     pathlib.Path
         The path to the completed ``.gz`` file.
     """
+
     dst.parent.mkdir(parents=True, exist_ok=True)
     sess = make_session()
     temp = dst.with_suffix(dst.suffix + ".part")
 
-    # (Opcional) probamos obtener el tamaño remoto, pero no lo usamos si no hay tqdm
+    # (Optional) probe remote size
     head = sess.head(url, timeout=30)
     total_size = None
     if head.ok and "Content-Length" in head.headers:
         try:
             total_size = int(head.headers["Content-Length"])
         except (TypeError, ValueError, KeyError):
+            log.warning("HEAD probe unavailable; proceeding without total size.")
             total_size = None
 
     pos = 0
@@ -215,67 +220,63 @@ def parse_ccd_sdf_to_table(
         try:
             limit = len(suppl)  # may raise TypeError for some suppliers
         except TypeError:
+            log.warning("Supplier has no len(); using infinite limit (StopIteration).")
             limit = float("inf")
     else:
         limit = max_records
-
-    # Configure a progress bar that knows the total only when 'limit' is finite.
-    total_hint = None if limit == float("inf") else limit
 
     while total < limit:
         # Pull next molecule; stop on natural end of stream.
         try:
             mol = next(suppl)
         except StopIteration:
-            break
+            total = limit
+            mol = None
+        
+        if mol is not None:
 
-        if mol is None:
-            # Skip invalid/failed parses without incrementing counters.
-            continue
+            # Component ID (usually in _Name)
+            chemcomp_id = mol.GetProp("_Name") if mol.HasProp("_Name") else None
+            # InChIKey (stable key for joins)
+            inchi_key = mol.GetProp("InChIKey") if mol.HasProp("InChIKey") else None
 
-        # Component ID (usually in _Name)
-        chemcomp_id = mol.GetProp("_Name") if mol.HasProp("_Name") else None
-        # InChIKey (stable key for joins)
-        inchi_key = mol.GetProp("InChIKey") if mol.HasProp("InChIKey") else None
+            # If no InChIKey, try to generate one (best-effort, light sanitization).
+            if inchi_key is None:
+                try:
+                    m2 = Chem.Mol(mol)
+                    Chem.SanitizeMol(
+                        m2,
+                        Chem.SanitizeFlags.SANITIZE_KEKULIZE
+                        | Chem.SanitizeFlags.SANITIZE_SETAROMATICITY
+                        | Chem.SanitizeFlags.SANITIZE_SETCONJUGATION,
+                        catchErrors=True,
+                    )
+                    inchi = Chem.MolToInchi(m2)  # requires RDKit built with InChI support
+                    inchi_key = Chem.InchiToInchiKey(inchi) if inchi else None
+                except (TypeError, ValueError, KeyError):
+                    # Keep going if InChI generation fails for this record.
+                    log.warning("InChI generation failed")
 
-        # If no InChIKey, try to generate one (best-effort, light sanitization).
-        if inchi_key is None:
-            try:
-                m2 = Chem.Mol(mol)
-                Chem.SanitizeMol(
-                    m2,
-                    Chem.SanitizeFlags.SANITIZE_KEKULIZE
-                    | Chem.SanitizeFlags.SANITIZE_SETAROMATICITY
-                    | Chem.SanitizeFlags.SANITIZE_SETCONJUGATION,
-                    catchErrors=True,
-                )
-                inchi = Chem.MolToInchi(m2)  # requires RDKit built with InChI support
-                inchi_key = Chem.InchiToInchiKey(inchi) if inchi else None
-            except (TypeError, ValueError, KeyError):
-                # Keep going if InChI generation fails for this record.
-                pass
+            rows.append(
+                {
+                    "chemcomp_id": (chemcomp_id or "").strip() or None,
+                    "inchikey": (inchi_key or "").strip().upper() or None,
+                }
+            )
 
-        rows.append(
-            {
-                "chemcomp_id": (chemcomp_id or "").strip() or None,
-                "inchikey": (inchi_key or "").strip().upper() or None,
-            }
-        )
+            total += 1
 
-        total += 1
-
-            # Flush in batches to constrain memory footprint.
-        if len(rows) >= batch_size:
-            df_batch = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
-            _append_or_write(df_batch, out_parquet, out_csv, mode="a")
-            rows = []
+                # Flush in batches to constrain memory footprint.
+            if len(rows) >= batch_size:
+                df_batch = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
+                _append_or_write(df_batch, out_parquet, out_csv, mode="a")
+                rows = []
 
     # Flush remaining rows (final batch).
     if rows:
         df_batch = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
         _append_or_write(df_batch, out_parquet, out_csv, mode="a")
 
-    # If not writing to disk, return the full in-memory table.
     df = pd.DataFrame(rows).dropna(subset=["chemcomp_id"]).drop_duplicates()
     return df
 
@@ -305,12 +306,16 @@ def _append_or_write(
     """
     if out_parquet:
         if out_parquet.exists() and mode == "a":
+            # Load existing Parquet fully into memory to perform concat + drop_duplicates.
+            # This provides idempotency but may be costly for large files.
             old = pd.read_parquet(out_parquet)
             pd.concat([old, df], ignore_index=True).drop_duplicates().to_parquet(out_parquet, index=False)
         else:
+            # Fresh write (either file does not exist or mode != 'a').
             df.to_parquet(out_parquet, index=False)
 
     if out_csv:
+        # Write header only when creating a new file or when not appending.
         header = not out_csv.exists() or mode != "a"
         df.to_csv(out_csv, mode="a" if out_csv.exists() else "w", index=False, header=header)
 
@@ -390,7 +395,7 @@ def run_ccd_download_parse(
     pq = Path(out_parquet) if out_parquet else None
     cs = Path(out_csv) if out_csv else None
 
-    df_preview = parse_ccd_sdf_to_table(
+    df = parse_ccd_sdf_to_table(
         sdf_path,
         out_parquet=pq,
         out_csv=cs,
@@ -398,4 +403,4 @@ def run_ccd_download_parse(
         batch_size=batch_size,
     )
 
-    return df_preview
+    return df

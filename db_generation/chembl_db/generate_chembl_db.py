@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-End-to-end ChEMBL → CCD → UniProt/Pfam pipeline (CLI) **with structured logging**.
+End-to-end ChEMBL → CCD → UniProt/Pfam pipeline (CLI).
 
 This generates a database of chembl ligands with their interactions, includes corresponding PDB IDs and associated information about binding targets. 
 It performs:
@@ -18,16 +18,6 @@ It performs:
    `pfam_ids`.
 5) Write the final table to CSV.
 
-Example
--------
-python pipeline_chembl_cli.py \
-  --chembl-sqlite /path/to/chembl_35.db \
-  --ccd-script ./download_parse_ccd.py \
-  --workdir temp \
-  --ccd-csv temp/ccd.csv \
-  --out-csv chembl_db.csv \
-  --pfam-workers 24 --pfam-timeout 45 --pfam-retries 3 \
-  --log-dir logs --log-level INFO --no-console
 
 """
 

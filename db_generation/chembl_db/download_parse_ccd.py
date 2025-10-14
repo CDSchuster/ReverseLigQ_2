@@ -88,11 +88,16 @@ def download_with_resume(url: str, dst: Path, chunk_size: int = 1024 * 1024) -> 
         The path to the completed ``.gz`` file.
     """
 
+    # Ensure the destination directory exists
     dst.parent.mkdir(parents=True, exist_ok=True)
+    # Create an HTTP session (external helper assumed: make_session())
     sess = make_session()
+    # Define temporary file used during partial downloads (e.g., file.gz.part)
     temp = dst.with_suffix(dst.suffix + ".part")
 
-    # (Optional) probe remote size
+    # Optional: probe remote file size using HTTP HEAD
+    # This is only for metadata (e.g., logging or progress reporting).
+    # If the HEAD request fails or lacks a valid Content-Length, the download proceeds normally.
     head = sess.head(url, timeout=30)
     total_size = None
     if head.ok and "Content-Length" in head.headers:
@@ -102,14 +107,18 @@ def download_with_resume(url: str, dst: Path, chunk_size: int = 1024 * 1024) -> 
             log.warning("HEAD probe unavailable; proceeding without total size.")
             total_size = None
 
+    # Determine resume position
+    # If a partial file exists, get its size to resume from the last written byte.
     pos = 0
     if temp.exists():
         pos = temp.stat().st_size
 
+    # Prepare HTTP headers for Range requests when resuming
     headers = {}
     if pos > 0:
         headers["Range"] = f"bytes={pos}-"
 
+    # Stream the response in chunks and append to the temporary file.
     with sess.get(url, stream=True, headers=headers, timeout=60) as r:
         r.raise_for_status()
         mode = "ab" if pos > 0 else "wb"
@@ -117,7 +126,7 @@ def download_with_resume(url: str, dst: Path, chunk_size: int = 1024 * 1024) -> 
             for chunk in r.iter_content(chunk_size=chunk_size):
                 if chunk:
                     f.write(chunk)
-
+    # Rename the temporary ".part" file to the final destination nam
     temp.rename(dst)
     return dst
 
@@ -139,6 +148,7 @@ def gunzip_file(src_gz: Path, dst_sdf: Path) -> Path:
     pathlib.Path
         The path to the written ``.sdf`` file.
     """
+
     dst_sdf.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(src_gz, "rb") as fin, open(dst_sdf, "wb") as fout, tqdm(
         unit="B", unit_scale=True, desc=f"Decompressing {src_gz.name}"
@@ -167,6 +177,7 @@ def _get_first_prop(mol, keys: List[str]) -> Optional[str]:
     Optional[str]
         The first non-empty property value found, otherwise ``None``.
     """
+
     v = None
     for k in keys:
         if mol.HasProp(k):
@@ -205,6 +216,7 @@ def parse_ccd_sdf_to_table(
     pandas.DataFrame
 
     """
+
     # RDKit is assumed available (hard dependency).
     suppl = Chem.SDMolSupplier(str(sdf_path), removeHs=False, sanitize=False)
 
@@ -304,6 +316,7 @@ def _append_or_write(
     mode : str, optional
         Append mode flag (``'a'`` to append), by default ``'a'``.
     """
+
     if out_parquet:
         if out_parquet.exists() and mode == "a":
             # Load existing Parquet fully into memory to perform concat + drop_duplicates.
@@ -368,6 +381,7 @@ def run_ccd_download_parse(
         * ``{workdir}/components-pub.sdf`` (decompressed)
         * optional Parquet/CSV (if `out_parquet`/`out_csv` are set)
     """
+    
     workdir = Path(workdir)
     gz_path = workdir / "components-pub.sdf.gz"
     sdf_path = workdir / "components-pub.sdf"

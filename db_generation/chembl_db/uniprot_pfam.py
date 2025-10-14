@@ -18,10 +18,13 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 import logging
 import requests
+import pandas as pd
 
 
 UNIPROT_ENTRY_URL = "https://rest.uniprot.org/uniprotkb/{acc}.json"
 HEADERS = {"Accept": "application/json", "User-Agent": "uniprot_pfam_min/1.1"}
+
+
 log = logging.getLogger("generateDB_log")
 
 def _norm_ids(ids: Iterable[str]) -> List[str]:
@@ -62,6 +65,7 @@ def _extract_pfam_from_json(data: dict) -> Set[str]:
     set of str
         A set of Pfam IDs present in the entry (e.g., {"PF00001", ...}).
     """
+
     out: Set[str] = set()
     for x in data.get("uniProtKBCrossReferences", []):
         if x.get("database") == "Pfam":
@@ -144,6 +148,7 @@ def _fetch_one(acc: str, *, timeout: int, max_retries: int) -> Tuple[str, Set[st
 
     return result
 
+
 def get_pfam_for_uniprot_ids(
     ids: Iterable[str],
     *,
@@ -152,7 +157,7 @@ def get_pfam_for_uniprot_ids(
     max_retries: int = 3,
 ) -> Dict[str, Set[str]]:
     """
-    Fetch Pfam IDs for a list of UniProt accessions, with logging-based progress reporting.
+    Fetch Pfam IDs for a list of UniProt accessions.
 
     Depending on ``max_workers``, requests run sequentially (``max_workers=1``)
     or concurrently using a thread pool (``max_workers>1``).
@@ -175,9 +180,9 @@ def get_pfam_for_uniprot_ids(
 
     Notes
     -----
-    - Uses the standard Python ``logging`` module for progress messages.
     - Concurrency is I/O-bound; using multiple threads can reduce total time.
     """
+
     accs = _norm_ids(ids)
     total = len(accs)
     mapping: Dict[str, Set[str]] = {a: set() for a in accs}
@@ -205,7 +210,7 @@ def get_pfam_for_uniprot_ids(
                 acc = future_to_acc[fut]
                 try:
                     pfset = fut.result()
-                except Exception as e:
+                except (requests.exceptions.RequestException, ValueError) as e:
                     log.warning("Error retrieving %s: %s", acc, e)
                     pfset = set()
                 mapping[acc] = pfset
@@ -232,7 +237,7 @@ def mapping_to_dataframe(mapping: Dict[str, Set[str]]):
         - ``uniprot``: the accession
         - ``pfam_ids``: semicolon-joined Pfam IDs (sorted)
     """
-    import pandas as pd
+
     return pd.DataFrame(
         [{"uniprot": k, "pfam_ids": ";".join(sorted(v))} for k, v in sorted(mapping.items())]
     )

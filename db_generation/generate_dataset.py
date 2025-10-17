@@ -1,5 +1,5 @@
 import random as rnd
-import pickle
+import itertools
 import pandas as pd
 from rdkit import Chem
 from rdkit.Chem import Descriptors
@@ -363,6 +363,31 @@ def generate_smiles_dataset():
     """
 
     actives_data, decoys_data = generate_data()
+
+    rows = []
+    for pfam_id, actives in actives_data.items():
+        print(f"Processing Pfam ID: {pfam_id} with {len(actives)} actives")
+
+        # Active–Active pairs (within same Pfam)
+        for s1, s2 in itertools.combinations(actives, 2):
+            rows.append({"smiles_1": s1, "smiles_2": s2, "pfam_id": pfam_id, "label": 1})
+        
+         # 2️⃣ Active–Decoy pairs
+        for active in actives:
+            if active in decoys_data:
+
+                for decoy_smile in decoys_data[active]:
+                    rows.append({"smiles_1": active, "smiles_2": decoy_smile, "pfam_id": pfam_id, "label": 0})
+            
+            else:
+                print(f"No decoys found for active: {active}")
+
+    smiles_df = pd.DataFrame(rows)
+    print(smiles_df.head())
+    print(f"Total pairs generated: {len(smiles_df)}")
+
+
+            
     
 
 generate_smiles_dataset()

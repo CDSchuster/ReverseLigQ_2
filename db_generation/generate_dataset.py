@@ -1,16 +1,18 @@
 import random as rnd
 import itertools
 import pandas as pd
-from rdkit import Chem
+import logging
+from rdkit import Chem, RDLogger
 from rdkit.Chem import Descriptors
 from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
 from rdkit.DataStructs import BulkTanimotoSimilarity
 
-from rdkit import RDLogger
 
 # Disable RDKit warnings
 RDLogger.DisableLog('rdApp.*')
+log = logging.getLogger("generateDB_log")
+
 
 def generate_struct_data(df, id_col, smiles_col):
     """Generate molecular properties, Morgan fingerprints, and Murcko scaffolds.
@@ -39,6 +41,8 @@ def generate_struct_data(df, id_col, smiles_col):
 
     rows, fingerprints, scaffolds = [], {}, {}
     morgan_gen = GetMorganGenerator(radius=2, fpSize=2048)
+
+    log.info("Generating molecular properties, fingerprints, and scaffolds")
 
     for index, row in df.iterrows():
 
@@ -311,8 +315,8 @@ def generate_data():
     None
     """
 
+    log.info("Generating actives dataset")
     actives_data = generate_actives_dataset("input_files/small_interactions_DB.csv")
-    print("Actives data generated")
 
     chembl_smiles = pd.read_csv("input_files/small_chembl.csv").drop_duplicates()
     all_actives = {
@@ -324,11 +328,11 @@ def generate_data():
     chembl_props_df, chembl_fps, chembl_scaffolds = generate_struct_data(
         chembl_smiles, "ChEMBL_ID", "SMILES"
     )
-    print("ChEMBL data generated")
 
     decoy_dataset = {}
     counter, actives_num = 0, len(all_actives) // 10
     
+    log.info("Generating decoys for actives")
     for ligand in all_actives:
         
         ligand_props = (actives_data["properties"][actives_data["properties"].smiles == ligand].iloc[0].to_dict())
@@ -336,7 +340,7 @@ def generate_data():
 
         counter += 1
         if counter % actives_num == 0:
-            print(f"Generating decoys for {counter}/{len(all_actives)} ligands")
+            log.info(f"Generating decoys for {counter}/{len(all_actives)} ligands")
 
         ligand_decoys = generate_decoys_from_properties(
             ligand_fp,
@@ -347,8 +351,6 @@ def generate_data():
         )
         if ligand_decoys:
             decoy_dataset[ligand] = ligand_decoys
-
-    print("Decoys generated")
 
     return (actives_data["Pfam_clusters"], decoy_dataset)
 
@@ -364,30 +366,29 @@ def generate_smiles_dataset():
 
     actives_data, decoys_data = generate_data()
 
+    log.info("Generating SMILES pairs dataset")
+
     rows = []
     for pfam_id, actives in actives_data.items():
-        print(f"Processing Pfam ID: {pfam_id} with {len(actives)} actives")
 
         # Active–Active pairs (within same Pfam)
         for s1, s2 in itertools.combinations(actives, 2):
             rows.append({"smiles_1": s1, "smiles_2": s2, "pfam_id": pfam_id, "label": 1})
         
-         # 2️⃣ Active–Decoy pairs
+         # Active–Decoy pairs
         for active in actives:
-            if active in decoys_data:
+            if active in decoys_data.keys():
 
                 for decoy_smile in decoys_data[active]:
                     rows.append({"smiles_1": active, "smiles_2": decoy_smile, "pfam_id": pfam_id, "label": 0})
             
             else:
-                print(f"No decoys found for active: {active}")
+                log.error(f"No decoys found for active: {active} from Pfam: {pfam_id}")
 
     smiles_df = pd.DataFrame(rows)
-    print(smiles_df.head())
-    print(f"Total pairs generated: {len(smiles_df)}")
+    log.info(f"Total pairs generated: {len(smiles_df)}")
 
+    return smiles_df
 
-            
-    
 
 generate_smiles_dataset()

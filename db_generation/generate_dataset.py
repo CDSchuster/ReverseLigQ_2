@@ -7,6 +7,10 @@ from rdkit.Chem.Scaffolds import MurckoScaffold
 from rdkit.Chem.rdFingerprintGenerator import GetMorganGenerator
 from rdkit.DataStructs import BulkTanimotoSimilarity
 
+from rdkit import RDLogger
+
+# Disable RDKit warnings
+RDLogger.DisableLog('rdApp.*')
 
 def generate_struct_data(df, id_col, smiles_col):
     """Generate molecular properties, Morgan fingerprints, and Murcko scaffolds.
@@ -37,8 +41,6 @@ def generate_struct_data(df, id_col, smiles_col):
     morgan_gen = GetMorganGenerator(radius=2, fpSize=2048)
 
     for index, row in df.iterrows():
-        if index % 10000 == 0:
-            print(round(index / len(df) * 100, 2), "%")
 
         mol_id, smile = row[id_col], row[smiles_col]
         mol = Chem.MolFromSmiles(smile)
@@ -63,7 +65,6 @@ def generate_struct_data(df, id_col, smiles_col):
             rows.append(properties)
 
     properties_df = pd.DataFrame(rows)
-    print(len(properties_df) / len(df), "of molecules could be processed")
 
     return properties_df, fingerprints, scaffolds
 
@@ -153,7 +154,7 @@ def filter_ligands(properties_df, ligand_properties):
     return filtered_df
 
 
-def calculate_similarity_filter(ligand_id, filtered_properties, fps, threshold=0.5):
+def calculate_similarity_filter(ligand_fp, filtered_properties, fps, threshold=0.5):
     """Filter ligands based on Tanimoto similarity against a reference ligand.
 
     Parameters
@@ -173,14 +174,14 @@ def calculate_similarity_filter(ligand_id, filtered_properties, fps, threshold=0
         List of ligand IDs considered potential decoys.
     """
 
-    ligand_fp = fps[ligand_id]
-    pre_decoys = list(filtered_properties.index)
+    pre_decoys_dict = dict(zip(filtered_properties["compound_id"], filtered_properties["smiles"]))
+    pre_decoys = list(filtered_properties.compound_id)
     pre_decoys_fps = [fps[c] for c in pre_decoys]
 
     tanimoto_pre_decoys = BulkTanimotoSimilarity(ligand_fp, pre_decoys_fps)
 
     decoys = [
-        pre_decoys[i]
+        pre_decoys_dict[pre_decoys[i]]
         for i in range(len(pre_decoys_fps))
         if tanimoto_pre_decoys[i] < threshold
     ]
@@ -188,8 +189,8 @@ def calculate_similarity_filter(ligand_id, filtered_properties, fps, threshold=0
 
 
 def generate_decoys_from_properties(
-    ligand,
-    pdb_props_df,
+    ligand_fp,
+    ligand_props,
     chembl_props_df,
     fingerprints,
     scaffolds,
@@ -222,19 +223,14 @@ def generate_decoys_from_properties(
         could be generated.
     """
 
-    final_decoys = None
-    if ligand in pdb_props_df.compound_id.values:
-        ligand_props = (
-            pdb_props_df[pdb_props_df.compound_id == ligand].iloc[0].to_dict()
-        )
+    final_decoys = None   
+    pre_decoys = filter_ligands(chembl_props_df, ligand_props)
+    decoys = calculate_similarity_filter(ligand_fp, pre_decoys, fingerprints, threshold)
+    final_decoys = bemis_murcko_clustering(decoys, scaffolds)
 
-        pre_decoys = filter_ligands(chembl_props_df, ligand_props)
-        decoys = calculate_similarity_filter(ligand, pre_decoys, fingerprints, threshold)
-        final_decoys = bemis_murcko_clustering(decoys, scaffolds)
-
-        if len(final_decoys) > max_decoys:
-            final_decoys = rnd.sample(final_decoys, max_decoys)
-
+    if len(final_decoys) > max_decoys:
+        final_decoys = rnd.sample(final_decoys, max_decoys)
+    
     return final_decoys
 
 
@@ -315,10 +311,10 @@ def generate_data():
     None
     """
 
-    actives_data = generate_actives_dataset("small_interactions_DB.csv")
+    actives_data = generate_actives_dataset("input_files/small_interactions_DB.csv")
     print("Actives data generated")
 
-    chembl_smiles = pd.read_csv("small_chembl.csv").drop_duplicates()
+    chembl_smiles = pd.read_csv("input_files/small_chembl.csv").drop_duplicates()
     all_actives = {
         ligand
         for ligand_cluster in actives_data["Pfam_clusters"].values()
@@ -332,15 +328,19 @@ def generate_data():
 
     decoy_dataset = {}
     counter, actives_num = 0, len(all_actives) // 10
-
+    
     for ligand in all_actives:
+        
+        ligand_props = (actives_data["properties"][actives_data["properties"].smiles == ligand].iloc[0].to_dict())
+        ligand_fp = actives_data["fingerprints"][ligand_props["compound_id"]]
+
         counter += 1
         if counter % actives_num == 0:
             print(f"Generating decoys for {counter}/{len(all_actives)} ligands")
 
         ligand_decoys = generate_decoys_from_properties(
-            ligand,
-            actives_data["properties"],
+            ligand_fp,
+            ligand_props,
             chembl_props_df,
             chembl_fps,
             chembl_scaffolds,
@@ -350,9 +350,19 @@ def generate_data():
 
     print("Decoys generated")
 
-    pickle.dump(decoy_dataset, open("decoys.pkl", "wb"))
-    pickle.dump(
-        actives_data["Pfam_clusters"], open("actives_clusters.pkl", "wb")
-    )
+    return (actives_data["Pfam_clusters"], decoy_dataset)
 
-generate_data()
+
+def generate_smiles_dataset():
+    """Generate a dataset of SMILES strings from ChEMBL data.
+
+    Returns
+    -------
+    smiles_list : list
+        List of unique SMILES strings from the ChEMBL dataset.
+    """
+
+    actives_data, decoys_data = generate_data()
+    
+
+generate_smiles_dataset()

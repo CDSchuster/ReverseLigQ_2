@@ -42,8 +42,6 @@ def generate_struct_data(df, id_col, smiles_col):
     rows, fingerprints, scaffolds = [], {}, {}
     morgan_gen = GetMorganGenerator(radius=2, fpSize=2048)
 
-    log.info("Generating molecular properties, fingerprints, and scaffolds")
-
     for index, row in df.iterrows():
 
         mol_id, smile = row[id_col], row[smiles_col]
@@ -382,8 +380,8 @@ def generate_smiles_dataset():
                 for decoy_smile in decoys_data[active]:
                     rows.append({"smiles_1": active, "smiles_2": decoy_smile, "pfam_id": pfam_id, "label": 0})
             
-            else:
-                log.error(f"No decoys found for active: {active} from Pfam: {pfam_id}")
+            # else:
+            #     log.error(f"No decoys found for active: {active} from Pfam: {pfam_id}")
 
     smiles_df = pd.DataFrame(rows)
     log.info(f"Total pairs generated: {len(smiles_df)}")

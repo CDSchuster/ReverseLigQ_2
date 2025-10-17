@@ -150,12 +150,9 @@ def gunzip_file(src_gz: Path, dst_sdf: Path) -> Path:
     """
 
     dst_sdf.parent.mkdir(parents=True, exist_ok=True)
-    with gzip.open(src_gz, "rb") as fin, open(dst_sdf, "wb") as fout, tqdm(
-        unit="B", unit_scale=True, desc=f"Decompressing {src_gz.name}"
-    ) as pbar:
+    with gzip.open(src_gz, "rb") as fin, open(dst_sdf, "wb") as fout:
         for chunk in iter(lambda: fin.read(1024 * 1024), b""):
             fout.write(chunk)
-            pbar.update(len(chunk))
     return dst_sdf
 
 

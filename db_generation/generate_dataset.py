@@ -14,7 +14,7 @@ RDLogger.DisableLog('rdApp.*')
 log = logging.getLogger("generateDB_log")
 
 
-def generate_struct_data(df, id_col, smiles_col):
+def extract_molecular_features(df, id_col, smiles_col):
     """Generate molecular properties, Morgan fingerprints, and Murcko scaffolds.
 
     Parameters
@@ -100,7 +100,7 @@ def bemis_murcko_clustering(smiles, scaffolds):
     return clustered_ids
 
 
-def filter_ligands(properties_df, ligand_properties):
+def filter_by_properties(properties_df, ligand_properties):
     """Filter ligands similar to a reference ligand based on physicochemical properties.
 
     Filtering follows DUD-E criteria:
@@ -156,7 +156,7 @@ def filter_ligands(properties_df, ligand_properties):
     return filtered_df
 
 
-def calculate_similarity_filter(ligand_fp, filtered_properties, fps, threshold=0.5):
+def filter_by_tanimoto(ligand_fp, filtered_properties, fps, threshold=0.5):
     """Filter ligands based on Tanimoto similarity against a reference ligand.
 
     Parameters
@@ -190,7 +190,7 @@ def calculate_similarity_filter(ligand_fp, filtered_properties, fps, threshold=0
     return decoys
 
 
-def generate_decoys_from_properties(
+def get_decoys(
     ligand_fp,
     ligand_props,
     chembl_props_df,
@@ -226,8 +226,8 @@ def generate_decoys_from_properties(
     """
 
     final_decoys = None   
-    pre_decoys = filter_ligands(chembl_props_df, ligand_props)
-    decoys = calculate_similarity_filter(ligand_fp, pre_decoys, fingerprints, threshold)
+    pre_decoys = filter_by_properties(chembl_props_df, ligand_props)
+    decoys = filter_by_tanimoto(ligand_fp, pre_decoys, fingerprints, threshold)
     final_decoys = bemis_murcko_clustering(decoys, scaffolds)
 
     if len(final_decoys) > max_decoys:
@@ -236,7 +236,7 @@ def generate_decoys_from_properties(
     return final_decoys
 
 
-def generate_actives_dataset(pdb_data, min_actives=5, max_actives=100):
+def get_actives_data(pdb_data, min_actives=5, max_actives=100):
     """Generate active ligand clusters from PDB-derived data.
 
     Parameters
@@ -262,7 +262,7 @@ def generate_actives_dataset(pdb_data, min_actives=5, max_actives=100):
     interactions_db = pd.read_csv(pdb_data)[["ligand_id", "SMILES", "pfam_id"]]
     interactions_db = interactions_db.drop_duplicates()
 
-    pdb_props_df, pdb_fps, pdb_scaffolds = generate_struct_data(
+    pdb_props_df, pdb_fps, pdb_scaffolds = extract_molecular_features(
         interactions_db[["ligand_id", "SMILES"]].drop_duplicates(),
         "ligand_id",
         "SMILES",
@@ -299,7 +299,7 @@ def generate_actives_dataset(pdb_data, min_actives=5, max_actives=100):
     return actives_data
 
 
-def generate_data():
+def get_actives_and_decoys():
     """Main pipeline to generate actives and decoys datasets.
 
     Steps:
@@ -314,7 +314,7 @@ def generate_data():
     """
 
     log.info("Generating actives dataset")
-    actives_data = generate_actives_dataset("input_files/small_interactions_DB.csv")
+    actives_data = get_actives_data("input_files/small_interactions_DB.csv")
 
     chembl_smiles = pd.read_csv("input_files/small_chembl.csv").drop_duplicates()
     all_actives = {
@@ -323,7 +323,7 @@ def generate_data():
         for ligand in ligand_cluster
     }
 
-    chembl_props_df, chembl_fps, chembl_scaffolds = generate_struct_data(
+    chembl_props_df, chembl_fps, chembl_scaffolds = extract_molecular_features(
         chembl_smiles, "ChEMBL_ID", "SMILES"
     )
 
@@ -340,7 +340,7 @@ def generate_data():
         if counter % actives_num == 0:
             log.info(f"Generating decoys for {counter}/{len(all_actives)} ligands")
 
-        ligand_decoys = generate_decoys_from_properties(
+        ligand_decoys = get_decoys(
             ligand_fp,
             ligand_props,
             chembl_props_df,
@@ -353,7 +353,7 @@ def generate_data():
     return (actives_data["Pfam_clusters"], decoy_dataset)
 
 
-def generate_smiles_dataset():
+def generate_smiles_pairs_dataset():
     """Generate a dataset of SMILES strings from ChEMBL data.
 
     Returns
@@ -362,7 +362,7 @@ def generate_smiles_dataset():
         List of unique SMILES strings from the ChEMBL dataset.
     """
 
-    actives_data, decoys_data = generate_data()
+    actives_data, decoys_data = get_actives_and_decoys()
 
     log.info("Generating SMILES pairs dataset")
 
@@ -380,8 +380,8 @@ def generate_smiles_dataset():
                 for decoy_smile in decoys_data[active]:
                     rows.append({"smiles_1": active, "smiles_2": decoy_smile, "pfam_id": pfam_id, "label": 0})
             
-            # else:
-            #     log.error(f"No decoys found for active: {active} from Pfam: {pfam_id}")
+            else:
+                log.error(f"No decoys found for active: {active} from Pfam: {pfam_id}")
 
     smiles_df = pd.DataFrame(rows)
     log.info(f"Total pairs generated: {len(smiles_df)}")
@@ -389,4 +389,4 @@ def generate_smiles_dataset():
     return smiles_df
 
 
-generate_smiles_dataset()
+generate_smiles_pairs_dataset()

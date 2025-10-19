@@ -196,8 +196,8 @@ def get_decoys(
     chembl_props_df,
     fingerprints,
     scaffolds,
-    threshold=0.4,
-    max_decoys=100,
+    threshold,
+    max_decoys,
 ):
     """Generate decoys for a ligand using precomputed property datasets.
 
@@ -225,7 +225,7 @@ def get_decoys(
         could be generated.
     """
 
-    final_decoys = None   
+    final_decoys = []   
     pre_decoys = filter_by_properties(chembl_props_df, ligand_props)
     decoys = filter_by_tanimoto(ligand_fp, pre_decoys, fingerprints, threshold)
     final_decoys = bemis_murcko_clustering(decoys, scaffolds)
@@ -236,7 +236,7 @@ def get_decoys(
     return final_decoys
 
 
-def get_actives_data(pdb_data, min_actives=5, max_actives=100):
+def get_actives_data(pdb_data, min_actives, max_actives):
     """Generate active ligand clusters from PDB-derived data.
 
     Parameters
@@ -299,7 +299,7 @@ def get_actives_data(pdb_data, min_actives=5, max_actives=100):
     return actives_data
 
 
-def get_actives_and_decoys():
+def get_actives_and_decoys(min_actives, max_actives, threshold, max_decoys):
     """Main pipeline to generate actives and decoys datasets.
 
     Steps:
@@ -314,7 +314,7 @@ def get_actives_and_decoys():
     """
 
     log.info("Generating actives dataset")
-    actives_data = get_actives_data("input_files/small_interactions_DB.csv")
+    actives_data = get_actives_data("input_files/small_interactions_DB.csv", min_actives, max_actives)
 
     chembl_smiles = pd.read_csv("input_files/small_chembl.csv").drop_duplicates()
     all_actives = {
@@ -346,6 +346,8 @@ def get_actives_and_decoys():
             chembl_props_df,
             chembl_fps,
             chembl_scaffolds,
+            threshold,
+            max_decoys
         )
         if ligand_decoys:
             decoy_dataset[ligand] = ligand_decoys
@@ -353,7 +355,7 @@ def get_actives_and_decoys():
     return (actives_data["Pfam_clusters"], decoy_dataset)
 
 
-def generate_smiles_pairs_dataset():
+def generate_smiles_pairs_dataset(min_actives, max_actives, threshold, max_decoys):
     """Generate a dataset of SMILES strings from ChEMBL data.
 
     Returns
@@ -362,7 +364,7 @@ def generate_smiles_pairs_dataset():
         List of unique SMILES strings from the ChEMBL dataset.
     """
 
-    actives_data, decoys_data = get_actives_and_decoys()
+    actives_data, decoys_data = get_actives_and_decoys(min_actives, max_actives, threshold, max_decoys)
 
     log.info("Generating SMILES pairs dataset")
 
@@ -387,6 +389,3 @@ def generate_smiles_pairs_dataset():
     log.info(f"Total pairs generated: {len(smiles_df)}")
 
     return smiles_df
-
-
-generate_smiles_pairs_dataset()

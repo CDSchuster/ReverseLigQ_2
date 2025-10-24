@@ -358,6 +358,7 @@ def get_actives_and_decoys(min_actives, max_actives, threshold, max_decoys):
 
     log.info("Generating decoys for actives")
     for ligand in all_actives:
+
         # Retrieve active ligand properties
         ligand_props = actives_data["properties"][
             actives_data["properties"].smiles == ligand
@@ -387,7 +388,7 @@ def get_actives_and_decoys(min_actives, max_actives, threshold, max_decoys):
     return pfam_clusters, decoy_dataset
 
 
-def generate_smiles_pairs_dataset(min_actives, max_actives, threshold, max_decoys):
+def generate_smiles_pairs_dataset(min_actives, max_actives, threshold, min_decoys, max_decoys):
     """
     Generate a dataset of SMILES pairs (active–active and active–decoy).
 
@@ -426,7 +427,7 @@ def generate_smiles_pairs_dataset(min_actives, max_actives, threshold, max_decoy
 
         # Active–Decoy pairs
         for active in actives:
-            if active in decoys_data:
+            if active in decoys_data and len(decoys_data[active]) > min_decoys:
                 for decoy_smile in decoys_data[active]:
                     rows.append(
                         {
@@ -437,9 +438,10 @@ def generate_smiles_pairs_dataset(min_actives, max_actives, threshold, max_decoy
                         }
                     )
             else:
-                log.error(f"No decoys found for active: {active} (Pfam: {pfam_id})")
+                log.error(f"Not enough decoys found for active: {active} (Pfam: {pfam_id})")
 
     smiles_df = pd.DataFrame(rows)
+    smiles_df.to_csv("smiles_pairs_dataset.csv", index=False)
     log.info(f"Total pairs generated: {len(smiles_df)}")
 
     return smiles_df

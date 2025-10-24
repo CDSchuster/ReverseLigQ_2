@@ -10,6 +10,7 @@ def argument_parser():
     parser.add_argument('--min_actives', type=int, default=5, help="Minimum number of actives")
     parser.add_argument('--max_actives', type=int, default=100, help="Maximum number of actives")
     parser.add_argument('--threshold', type=float, default=0.4, help="Threshold for decoy selection")
+    parser.add_argument('--min_decoys', type=int, default=5, help="Minimum number of decoys per active")
     parser.add_argument('--max_decoys', type=int, default=100, help="Maximum number of decoys per active")
     args = parser.parse_args()
     return args
@@ -21,6 +22,7 @@ def main():
         min_actives=args.min_actives,
         max_actives=args.max_actives,
         threshold=args.threshold,
+        min_decoys=args.min_decoys,
         max_decoys=args.max_decoys)
 
  

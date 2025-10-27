@@ -7,10 +7,33 @@ from db_generation import generate_db
 
 def main():
     parser = argparse.ArgumentParser(description="A sample script.")
-    parser.add_argument('-chembl_db', type=str, help="Path of ChEMBL database (sqlite)")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--download_chembl", action="store_true", help="Download ChEMBL database automatically (from EBI FTP)")
+    group.add_argument("--chembl-db", "--chembl_sqlite", type=Path, help="Path to local chembl_XX.db (SQLite)")
+    parser.add_argument('--chembl_version',type=int, default=35)
     parser.add_argument('-arg2', type=str, help="Argument 2")
     args = parser.parse_args()
-    generate_db.run_database_generation(args.chembl_db)
+
+    if args.download_chembl:
+    # Downloads chembl with the specified version
+
+        chembl_file = out / f"chembl_{args.chembl_version}_sqlite.tar.gz"
+        
+        # Delete old .gz files (from truncated downloads for example)
+        if chembl_file.exists():
+            chembl_file.unlink()
+        
+        os.system(
+            f"wget -P {out} "
+            f"https://ftp.ebi.ac.uk/pub/databases/chembl/ChEMBLdb/releases/"
+            f"chembl_{args.chembl_version}/chembl_{args.chembl_version}_sqlite.tar.gz"
+        )
+        os.system(f"tar -xvzf {chembl_file} -C {out}")
+        chembl_db_path = next(out.rglob(f"chembl_{args.chembl_version}.db"))
+    else:
+        chembl_db_path = args.chembl_sqlite
+
+    generate_db.run_database_generation(chembl_db_path)
 
  
 if __name__ == "__main__":

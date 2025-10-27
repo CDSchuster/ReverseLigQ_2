@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import logging
+from pathlib import Path
 import os
 
 from logger import setup_logging
@@ -12,7 +13,7 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--download_chembl", action="store_true", help="Download ChEMBL database automatically (from EBI FTP)")
     group.add_argument("--chembl-db", "--chembl_sqlite", type=Path, help="Path to local chembl_XX.db (SQLite)")
-    parser.add_argument("--chembl_db_path",type=Path,help="Path to download chembl database", default='chembl_database')
+    parser.add_argument("--chembl_db_path",type=Path,help="Path to download chembl database", default=Path("chembl_database"))
     parser.add_argument('--chembl_version',type=int, default=35)
     parser.add_argument('-arg2', type=str, help="Argument 2")
     args = parser.parse_args()

@@ -215,7 +215,6 @@ def get_pfam_for_uniprot_ids(
                     pfset = set()
                 mapping[acc] = pfset
                 completed += 1
-                log.info("[%d/%d] %s → %d Pfam IDs", completed, total, acc, len(pfset))
 
     log.info("Completed UniProt→Pfam retrieval for %d accessions.", total)
     return mapping

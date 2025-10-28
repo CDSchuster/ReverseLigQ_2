@@ -31,7 +31,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from rdkit import Chem
-from rdkit.Chem import rdMolDescriptors  # noqa: F401 (kept for compatibility)
+from rdkit.Chem import rdMolDescriptors
+from rdkit import RDLogger
 
 DEFAULT_URL = "https://files.wwpdb.org/pub/pdb/data/monomers/components-pub.sdf.gz"
 DEFAULT_WORKDIR = "ccd_data"
@@ -44,6 +45,8 @@ FORMULA_KEYS = ["formula", "chem_comp.formula", "pdbx_formula"]
 
 
 log = logging.getLogger("generateDB_log")
+
+RDLogger.DisableLog('rdApp.*')
 
 # ------------------------- HTTP utils -------------------------
 def make_session() -> requests.Session:

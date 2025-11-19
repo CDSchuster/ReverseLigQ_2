@@ -44,7 +44,7 @@ def compare_fingerprints(query_smile, threshold=0.9):
     """
 
     # Load the database and filter unique SMILES
-    db = pd.read_csv("full_DB.csv", index_col=0)
+    db = pd.read_csv("interactions_DB.csv", index_col=0)
     log.info(f"Loaded database with {len(db)} entries")
     unique_smiles = db["SMILES"].unique()
 
